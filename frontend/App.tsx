@@ -11,7 +11,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { getApiHealth } from './src/lib/api';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { getApiHealth, getCurrentUser, type Session } from './src/lib/api';
+import { signOutOfGoogle } from './src/lib/googleSignIn';
+import { clearSession, loadSession, saveSession } from './src/lib/session';
+import LoginScreen from './src/screens/LoginScreen';
 
 type Trip = {
   id: number;
@@ -21,6 +25,12 @@ type Trip = {
 
 type ApiStatus = 'checking' | 'online' | 'offline';
 
+type AuthState =
+  | { status: 'restoring' }
+  | { status: 'signedOut' }
+  // `session` is null for providers that aren't wired to the backend yet (Apple, phone).
+  | { status: 'signedIn'; session: Session | null };
+
 export default function App() {
   const [trips, setTrips] = useState<Trip[]>([
     { id: 1, destination: 'Lisbon', dateLabel: 'OCT 18 - 22  /  4 NIGHTS' },
@@ -28,6 +38,37 @@ export default function App() {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [destination, setDestination] = useState('');
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
+  const [auth, setAuth] = useState<AuthState>({ status: 'restoring' });
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function restoreSession() {
+      const stored = await loadSession().catch(() => null);
+      if (!stored) return null;
+
+      try {
+        const user = await getCurrentUser(stored.token);
+        if (!user) {
+          await clearSession();
+          return null;
+        }
+        return { ...stored, user };
+      } catch {
+        // API unreachable: trust the stored session rather than signing the user out offline.
+        return stored;
+      }
+    }
+
+    restoreSession().then((session) => {
+      if (!isActive) return;
+      setAuth(session ? { status: 'signedIn', session } : { status: 'signedOut' });
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -57,6 +98,33 @@ export default function App() {
     setIsPlannerOpen(false);
   }
 
+  async function handleSignedIn(session: Session) {
+    await saveSession(session);
+    setAuth({ status: 'signedIn', session });
+  }
+
+  async function signOut() {
+    setAuth({ status: 'signedOut' });
+    await Promise.allSettled([clearSession(), signOutOfGoogle()]);
+  }
+
+  if (auth.status === 'restoring') {
+    return <View style={styles.restoring} />;
+  }
+
+  if (auth.status === 'signedOut') {
+    return (
+      <SafeAreaProvider>
+        <LoginScreen
+          onContinue={() => setAuth({ status: 'signedIn', session: null })}
+          onSignedIn={handleSignedIn}
+        />
+      </SafeAreaProvider>
+    );
+  }
+
+  const firstName = auth.session?.user.name?.split(' ')[0];
+
   return (
     <View style={styles.screen}>
       <StatusBar style="dark" />
@@ -81,7 +149,9 @@ export default function App() {
         </View>
 
         <View style={styles.intro}>
-          <Text style={styles.eyebrow}>MAKE ROOM FOR SOMEWHERE NEW</Text>
+          <Text style={styles.eyebrow}>
+            {firstName ? `WELCOME BACK, ${firstName.toUpperCase()}` : 'MAKE ROOM FOR SOMEWHERE NEW'}
+          </Text>
           <Text style={styles.headline}>A little closer to your next escape.</Text>
           <Text style={styles.subheading}>
             Keep the ideas, details, and good parts of every trip in one place.
@@ -129,6 +199,17 @@ export default function App() {
         <View style={styles.footerNote}>
           <Text style={styles.footerRule} />
           <Text style={styles.footerText}>GO LIGHT. COME BACK FULL.</Text>
+        </View>
+
+        <View style={styles.accountRow}>
+          {auth.session ? (
+            <Text numberOfLines={1} style={styles.accountEmail}>
+              {auth.session.user.email}
+            </Text>
+          ) : null}
+          <Pressable accessibilityRole="button" onPress={signOut} style={styles.signOutButton}>
+            <Text style={styles.signOutText}>Sign out</Text>
+          </Pressable>
         </View>
       </ScrollView>
 
@@ -184,6 +265,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  restoring: {
+    flex: 1,
+    backgroundColor: '#0B1621',
+  },
   screen: {
     flex: 1,
     backgroundColor: '#F3F2EC',
@@ -407,6 +492,32 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 1.2,
+  },
+  accountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#DEDDD4',
+  },
+  accountEmail: {
+    flex: 1,
+    color: '#6F746B',
+    fontSize: 13,
+  },
+  signOutButton: {
+    minHeight: 40,
+    justifyContent: 'center',
+    marginLeft: 'auto',
+    paddingHorizontal: 4,
+  },
+  signOutText: {
+    color: '#263A2D',
+    fontSize: 13,
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,

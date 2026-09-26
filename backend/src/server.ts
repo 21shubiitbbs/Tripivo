@@ -1,20 +1,33 @@
-import cors from 'cors';
-import express from 'express';
+import { createApp } from './app.js';
+import { env } from './config/env.js';
+import { runMigrations } from './db/migrator.js';
+import { pool } from './db/pool.js';
 
-const app = express();
-const port = Number(process.env.PORT) || 4000;
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 
-app.use(cors());
-app.use(express.json());
+if (!env.isSessionSecretConfigured) {
+  console.warn('SESSION_SECRET is not set; using a random secret, so sessions end when the API restarts.');
+}
 
-app.get('/api/health', (_request, response) => {
-  response.json({ status: 'ok', service: 'tripivo-api' });
+try {
+  await runMigrations();
+} catch (error) {
+  console.error('Could not prepare PostgreSQL. Check DATABASE_URL in backend/.env.', error);
+  process.exit(1);
+}
+
+const server = createApp().listen(env.port, () => {
+  console.log(`Tripivo API listening on http://localhost:${env.port}`);
 });
 
-app.get('/api/trips', (_request, response) => {
-  response.json({ trips: [] });
-});
+// Finish in-flight requests and release database connections before exiting.
+function shutdown(signal: NodeJS.Signals) {
+  console.log(`${signal} received, shutting down`);
+  setTimeout(() => process.exit(1), SHUTDOWN_TIMEOUT_MS).unref();
+  server.close(() => {
+    pool.end().finally(() => process.exit(0));
+  });
+}
 
-app.listen(port, () => {
-  console.log(`Tripivo API listening on http://localhost:${port}`);
-});
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);

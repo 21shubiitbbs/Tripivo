@@ -1,0 +1,78 @@
+import type { CreatedAt, CurrencyCode, DateString, Money, Timestamps, Uuid } from './common.js';
+import type { ExpenseCategory, JoinRequestStatus, TripStatus } from './enums.js';
+
+export type TripRow = Timestamps & {
+  id: Uuid;
+  creator_id: Uuid;
+  title: string | null;
+  description: string | null;
+  destination: string;
+  start_date: DateString | null;
+  end_date: DateString | null;
+  budget_min: Money | null;
+  budget_max: Money | null;
+  currency: CurrencyCode;
+  max_members: number;
+  status: TripStatus;
+};
+
+/** At most one `pending` request per (trip, user); decided requests are kept as history. */
+export type JoinRequestRow = CreatedAt & {
+  id: Uuid;
+  trip_id: Uuid;
+  user_id: Uuid;
+  message: string | null;
+  status: JoinRequestStatus;
+  reviewed_by: Uuid | null;
+  reviewed_at: Date | null;
+};
+
+/** One entry of `itinerary_days.activities` (jsonb array, in display order). */
+export type ItineraryActivity = {
+  time?: string;
+  title: string;
+  location?: string;
+  notes?: string;
+};
+
+/** Unique per (trip, day_number). */
+export type ItineraryDayRow = Timestamps & {
+  id: Uuid;
+  trip_id: Uuid;
+  day_number: number;
+  date: DateString | null;
+  title: string | null;
+  notes: string | null;
+  activities: ItineraryActivity[];
+};
+
+/** Trip-level costs (bookings, planned spend). Spending split between members is a GroupExpenseRow. */
+export type ExpenseRow = Timestamps & {
+  id: Uuid;
+  trip_id: Uuid;
+  paid_by: Uuid | null;
+  title: string;
+  amount: Money;
+  currency: CurrencyCode;
+  category: ExpenseCategory;
+  spent_on: DateString | null;
+  notes: string | null;
+};
+
+export type TripPhotoRow = CreatedAt & {
+  id: Uuid;
+  trip_id: Uuid;
+  uploaded_by: Uuid | null;
+  url: string;
+  caption: string | null;
+  taken_at: Date | null;
+};
+
+/** One review per (trip, reviewer); `rating` is 1–5. */
+export type TripReviewRow = CreatedAt & {
+  id: Uuid;
+  trip_id: Uuid;
+  reviewer_id: Uuid;
+  rating: number;
+  comment: string | null;
+};

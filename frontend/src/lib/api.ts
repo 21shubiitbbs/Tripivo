@@ -257,6 +257,9 @@ export type MyProfile = Profile & {
   phone: string | null;
   /** False for Google and phone accounts that haven't set a password. */
   hasPassword: boolean;
+  cityPlaceId: string | null;
+  /** The home city's coordinates, when it was picked from place search. */
+  homeLocation: Coordinates | null;
 };
 export type PublicProfile = Profile & { isMe: boolean; isFollowing: boolean; isBlocked: boolean };
 
@@ -269,6 +272,8 @@ export type ProfileChanges = Partial<{
   age: number | null;
   gender: string;
   city: string;
+  /** Picks the city from place search; the API fills in `city` from it. `null` unlinks. */
+  cityPlaceId: string | null;
   profession: string;
   travelStyles: string[];
   interests: string[];
@@ -312,18 +317,60 @@ export async function uploadImage(data: string, contentType: string) {
 // ---------------------------------------------------------------------------------------------
 // Destinations and trips
 
-export type Destination = {
+/** A real place from the API's geocoding provider (OpenStreetMap / Google). */
+export type Place = {
   id: string;
   name: string;
-  tags: string;
-  image: string;
-  latitude: number;
-  longitude: number;
-  trending: boolean;
+  /** Region and country, e.g. "Himachal Pradesh, India". */
+  subtitle: string | null;
+  country: string | null;
+  countryCode: string | null;
+  /** city, town, village, region, country, island, beach, nature, attraction, area … */
+  kind: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** Only filled in by `getPlace` (looked up on first request). */
+  image: string | null;
 };
 
-export async function getDestinations() {
-  return (await request<{ destinations: Destination[] }>('/destinations', { token: null })).destinations;
+export type PlaceScope = 'destination' | 'city';
+export type Coordinates = { latitude: number; longitude: number };
+
+/** Place suggestions for a partial name; `near` ranks nearby places first. */
+export async function autocompletePlaces(query: string, scope: PlaceScope = 'destination', near?: Coordinates | null) {
+  return (
+    await request<{ places: Place[] }>('/places/autocomplete', {
+      query: { q: query, scope, lat: near?.latitude, lng: near?.longitude },
+    })
+  ).places;
+}
+
+/** A place with coordinates and a photo. */
+export async function getPlace(placeId: string) {
+  return (await request<{ place: Place }>(`/places/${encodeURIComponent(placeId)}`)).place;
+}
+
+/** A destination ranked by real trip activity. `placeId` is null for trips created without one. */
+export type RankedPlace = {
+  id: string;
+  placeId: string | null;
+  name: string;
+  subtitle: string | null;
+  image: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  tripCount: number;
+  travelerCount: number;
+};
+
+/** Destinations with the most upcoming trips. */
+export async function getPopularPlaces(limit = 10) {
+  return (await request<{ places: RankedPlace[] }>('/places/popular', { query: { limit } })).places;
+}
+
+/** Destinations with the most activity in the last two weeks. */
+export async function getTrendingPlaces(limit = 6) {
+  return (await request<{ places: RankedPlace[] }>('/places/trending', { query: { limit } })).places;
 }
 
 export type Membership = 'host' | 'member' | 'pending' | null;
@@ -334,6 +381,8 @@ export type TripSummary = {
   id: string;
   title: string;
   destination: string;
+  placeId: string | null;
+  country: string | null;
   coverImage: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -381,6 +430,8 @@ export type BudgetKey = 'under5k' | '5k-10k' | '10k-20k' | '20k+';
 
 export type TripQuery = {
   q?: string;
+  /** Trips going to (or within ~60 km of) this place. */
+  placeId?: string;
   category?: TripCategory;
   activities?: string[];
   groupSize?: GroupSizeKey | null;
@@ -408,7 +459,9 @@ export async function getTrip(tripId: string) {
 
 export type NewTrip = {
   title: string;
-  destination: string;
+  /** From place search; preferred over `destination`, which is only a name. */
+  placeId?: string;
+  destination?: string;
   startDate: string;
   endDate: string;
   budget: BudgetKey;

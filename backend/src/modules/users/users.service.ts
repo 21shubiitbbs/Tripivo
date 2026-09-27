@@ -19,6 +19,7 @@ import {
   type ProfileRecord,
 } from './users.repository.js';
 import { withTransaction } from '../../db/transaction.js';
+import { getPlace } from '../places/places.service.js';
 
 export type Profile = {
   id: string;
@@ -44,6 +45,9 @@ export type MyProfile = Profile & {
   phone: string | null;
   /** False for Google and phone accounts that haven't set a password. */
   hasPassword: boolean;
+  /** The home city's place and coordinates, when it was picked from place search. */
+  cityPlaceId: string | null;
+  homeLocation: { latitude: number; longitude: number } | null;
 };
 
 export type PublicProfile = Profile & { isMe: boolean; isFollowing: boolean; isBlocked: boolean };
@@ -81,6 +85,11 @@ export async function getMyProfile(userId: string): Promise<MyProfile> {
     emailVerified: record.email_verified,
     phone: record.phone,
     hasPassword: record.has_password,
+    cityPlaceId: record.city_place_id,
+    homeLocation:
+      record.home_latitude !== null && record.home_longitude !== null
+        ? { latitude: record.home_latitude, longitude: record.home_longitude }
+        : null,
   };
 }
 
@@ -109,6 +118,20 @@ export async function updateMyProfile(userId: string, body: Record<string, unkno
 
   const completed = body.completed === true;
 
+  // A city picked from place search: store the place, and use its label unless one was sent.
+  let city = optionalString(body.city, 'city', 100);
+  let cityPlaceId: string | null | undefined;
+  if (body.cityPlaceId === null) cityPlaceId = null;
+  else if (typeof body.cityPlaceId === 'string' && body.cityPlaceId) {
+    const place = await getPlace(body.cityPlaceId).catch(() => null);
+    if (!place) throw HttpError.badRequest('Pick your city from the list', { field: 'city' });
+    cityPlaceId = place.id.startsWith('catalog:') ? null : place.id;
+    city ??= [place.name, place.country].filter(Boolean).join(', ');
+  } else if (city !== undefined) {
+    // Typed text without picking a place: keep the text, drop the old link.
+    cityPlaceId = null;
+  }
+
   await withTransaction(async (client) => {
     try {
       await updateUser(
@@ -134,7 +157,8 @@ export async function updateMyProfile(userId: string, body: Record<string, unkno
         bio: optionalString(body.bio, 'bio', 1000),
         age: optionalInt(body.age, 'age', 13, 120),
         gender: optionalString(body.gender, 'gender', 40),
-        city: optionalString(body.city, 'city', 100),
+        city,
+        city_place_id: cityPlaceId,
         profession: optionalString(body.profession, 'profession', 100),
         travel_styles: stringList(body.travelStyles, 'travelStyles'),
         interests: stringList(body.interests, 'interests'),

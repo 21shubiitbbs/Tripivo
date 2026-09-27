@@ -30,7 +30,7 @@ export default function MessagesScreen() {
   );
 
   return (
-    <Screen edges={['top']}>
+    <Screen edges={['top']} onRefresh={chats.reload}>
       <Txt style={styles.title} variant="h1">
         Messages
       </Txt>

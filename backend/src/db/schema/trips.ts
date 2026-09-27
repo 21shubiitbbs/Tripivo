@@ -22,6 +22,29 @@ export type TripRow = Timestamps & {
   /** numeric(9, 6), as strings. */
   latitude: string | null;
   longitude: string | null;
+  /** The geocoded place the trip is going to, when picked from place search. */
+  place_id: string | null;
+  country: string | null;
+};
+
+/** A place from the geocoding provider, cached on first sight (migration 006). */
+export type PlaceRow = Timestamps & {
+  id: string;
+  name: string;
+  subtitle: string | null;
+  country: string | null;
+  country_code: string | null;
+  kind: string;
+  latitude: string;
+  longitude: string;
+  image_url: string | null;
+  image_checked_at: Date | null;
+};
+
+/** Cached autocomplete results, keyed by provider, query and bias. */
+export type PlaceSearchCacheRow = CreatedAt & {
+  cache_key: string;
+  place_ids: string[];
 };
 
 /** Primary key is (user_id, trip_id). */

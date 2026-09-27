@@ -14,12 +14,17 @@ const CATEGORIES: TripCategory[] = ['trekking', 'beaches', 'nightlife', 'budget'
 export default function SearchResultsScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const params = useLocalSearchParams<{ q?: string; category?: string; saved?: string }>();
+  const params = useLocalSearchParams<{ q?: string; placeId?: string; placeName?: string; category?: string; saved?: string }>();
   const { filters } = useAppData();
   const saved = params.saved === 'true';
 
+  // A place from the search screen wins; otherwise the destination picked in Filters.
+  const place = params.placeId
+    ? { id: params.placeId, name: params.placeName ?? 'This place' }
+    : filters.destination;
   const query: TripQuery = {
-    q: (params.q ?? '').trim() || filters.destination.trim() || undefined,
+    q: (params.q ?? '').trim() || undefined,
+    placeId: place?.id,
     category: CATEGORIES.find((c) => c === params.category),
     activities: filters.interests,
     groupSize: filters.groupSize,
@@ -29,7 +34,7 @@ export default function SearchResultsScreen() {
     saved: saved || undefined,
   };
   const trips = useQuery(`results-${JSON.stringify(query)}`, () => searchTrips(query));
-  const title = saved ? 'Saved trips' : query.q || 'All trips';
+  const title = saved ? 'Saved trips' : place ? `Trips to ${place.name}` : query.q || 'All trips';
 
   return (
     <Screen
@@ -61,7 +66,13 @@ export default function SearchResultsScreen() {
         {trips.data?.length === 0 ? (
           <EmptyState
             icon={saved ? 'heart-outline' : 'map-search-outline'}
-            message={saved ? 'Tap the heart on a trip to save it for later.' : 'Try another place or loosen your filters.'}
+            message={
+              saved
+                ? 'Tap the heart on a trip to save it for later.'
+                : place
+                  ? `No one is going to ${place.name} yet. Be the first: create a trip with the + button.`
+                  : 'Try another place or loosen your filters.'
+            }
             title={saved ? 'No saved trips' : 'No trips found'}
           />
         ) : null}

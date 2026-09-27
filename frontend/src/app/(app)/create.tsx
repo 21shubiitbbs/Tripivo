@@ -25,8 +25,19 @@ import {
   StepProgress,
   Txt,
 } from '../../components/ui';
-import { BUDGETS, GROUP_SIZES, interests, isInterestKey, TRIP_ACTIVITIES } from '../../data/catalog';
-import { createTrip, getDestinations, type BudgetKey, type Destination, type GroupSizeKey, type JoinMethod } from '../../lib/api';
+import { BUDGETS, GROUP_SIZES, images, interests, isInterestKey, TRIP_ACTIVITIES } from '../../data/catalog';
+import { PlaceResults, usePlaceSuggestions } from '../../components/PlaceSearch';
+import {
+  createTrip,
+  getPlace,
+  getPopularPlaces,
+  type BudgetKey,
+  type GroupSizeKey,
+  type JoinMethod,
+  type Place,
+  type RankedPlace,
+} from '../../lib/api';
+import { useApproxLocation } from '../../lib/useApproxLocation';
 import { useProfile } from '../../lib/auth';
 import { errorMessage } from '../../lib/format';
 import { useQuery } from '../../lib/useQuery';
@@ -37,6 +48,14 @@ import { makeStyles, useTheme } from '../../theme';
 const FORM_STEPS = 6;
 const PUBLISH_STEP = 7;
 
+/** Where the trip goes: a real place from search (with its id), or a popular destination. */
+type ChosenDestination = {
+  placeId: string | null;
+  name: string;
+  subtitle: string | null;
+  image: string | null;
+};
+
 function addDays(iso: string, days: number) {
   const [y, m, d] = iso.split('-').map(Number);
   return toIsoDate(new Date(y, m - 1, d + days));
@@ -45,12 +64,14 @@ function addDays(iso: string, days: number) {
 export default function CreateTripScreen() {
   const styles = useStyles();
   const profile = useProfile();
-  const catalog = useQuery('destinations', getDestinations);
+  const near = useApproxLocation();
+  const popular = useQuery('popular-places', () => getPopularPlaces(8));
   const today = toIsoDate(new Date());
 
   const [step, setStep] = useState(1);
   const [query, setQuery] = useState('');
-  const [destination, setDestination] = useState<Destination | null>(null);
+  const [destination, setDestination] = useState<ChosenDestination | null>(null);
+  const suggestions = usePlaceSuggestions(query, 'destination', near);
   const [startDate, setStartDate] = useState(addDays(today, 14));
   const [endDate, setEndDate] = useState(addDays(today, 17));
   const [editingDate, setEditingDate] = useState<'start' | 'end' | null>(null);
@@ -82,6 +103,27 @@ export default function CreateTripScreen() {
     else setStep(step - 1);
   }
 
+  /** Picks a searched place; its photo is looked up in the background for the preview. */
+  function choosePlace(place: Place) {
+    setDestination({ placeId: place.id, name: place.name, subtitle: place.subtitle, image: null });
+    setQuery('');
+    getPlace(place.id)
+      .then((details) =>
+        setDestination((current) => (current?.placeId === place.id ? { ...current, image: details.image } : current)),
+      )
+      .catch(() => {});
+  }
+
+  function choosePopular(place: RankedPlace) {
+    setDestination({
+      // Popular places from trips without a place id are still valid destinations by name.
+      placeId: place.placeId ?? (place.id.startsWith('catalog:') ? place.id : null),
+      name: place.name,
+      subtitle: place.subtitle,
+      image: place.image,
+    });
+  }
+
   async function publish() {
     if (!destination) return;
     setError(null);
@@ -89,7 +131,8 @@ export default function CreateTripScreen() {
     try {
       const trip = await createTrip({
         title: tripTitle,
-        destination: destination.name,
+        ...(destination.placeId ? { placeId: destination.placeId } : { destination: destination.name }),
+        coverImage: destination.image ?? undefined,
         startDate,
         endDate,
         budget,
@@ -133,21 +176,52 @@ export default function CreateTripScreen() {
       {step === 1 ? (
         <>
           <Heading text="Where are you going?" />
-          <SearchBar onChangeText={setQuery} placeholder="Search destination" value={query} />
-          {catalog.loading ? <LoadingState /> : null}
-          {catalog.error ? <ErrorText>{catalog.error}</ErrorText> : null}
-          <View style={styles.list}>
-            {(catalog.data ?? [])
-              .filter((d) => d.name.toLowerCase().includes(query.trim().toLowerCase()))
-              .map((d) => (
-                <DestinationRow
-                  destination={d}
-                  key={d.id}
-                  onPress={() => setDestination(d)}
-                  selected={destination?.id === d.id}
-                />
-              ))}
+          {destination ? (
+            <DestinationRow
+              meta={destination.subtitle}
+              name={destination.name}
+              image={destination.image}
+              onPress={() => setDestination(null)}
+              selected
+            />
+          ) : null}
+          <View style={styles.searchGap}>
+            <SearchBar
+              onChangeText={setQuery}
+              placeholder={destination ? 'Search for a different place' : 'Search any city, region or country'}
+              value={query}
+            />
           </View>
+          <PlaceResults
+            onSelect={choosePlace}
+            selectedId={destination?.placeId}
+            suggestions={suggestions}
+          />
+          {query.trim().length < 2 ? (
+            <>
+              <Txt style={[styles.label, styles.spaced]} variant="label">
+                Popular with travelers
+              </Txt>
+              {popular.loading ? <LoadingState /> : null}
+              {popular.error ? <ErrorText>{popular.error}</ErrorText> : null}
+              <View style={styles.list}>
+                {(popular.data ?? []).map((place) => (
+                  <DestinationRow
+                    image={place.image}
+                    key={place.id}
+                    meta={
+                      place.tripCount
+                        ? `${place.tripCount} upcoming ${place.tripCount === 1 ? 'trip' : 'trips'}`
+                        : place.subtitle
+                    }
+                    name={place.name}
+                    onPress={() => choosePopular(place)}
+                    selected={destination?.name === place.name}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
         </>
       ) : null}
 
@@ -288,7 +362,7 @@ export default function CreateTripScreen() {
         <>
           <Heading text="Preview Your Trip" />
           <Card>
-            <Image source={{ uri: destination.image }} style={styles.previewImage} />
+            <Image source={{ uri: destination.image ?? images.goaPalms }} style={styles.previewImage} />
             <Txt style={styles.previewTitle} variant="h2">
               {tripTitle}
             </Txt>
@@ -317,7 +391,7 @@ export default function CreateTripScreen() {
 
       {step === PUBLISH_STEP && destination ? (
         <View style={styles.publish}>
-          <Image source={{ uri: destination.image }} style={styles.publishImage} />
+          <Image source={{ uri: destination.image ?? images.goaPalms }} style={styles.publishImage} />
           <Txt center variant="h1">
             {tripTitle}
           </Txt>
@@ -347,11 +421,15 @@ function Heading({ text }: { text: string }) {
 }
 
 function DestinationRow({
-  destination,
+  name,
+  meta,
+  image,
   selected,
   onPress,
 }: {
-  destination: Destination;
+  name: string;
+  meta: string | null;
+  image: string | null;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -364,12 +442,22 @@ function DestinationRow({
       onPress={onPress}
       style={({ pressed }) => [styles.destination, selected && styles.destinationSelected, pressed && styles.pressed]}
     >
-      <Image source={{ uri: destination.image }} style={styles.destinationImage} />
+      {image ? (
+        <Image source={{ uri: image }} style={styles.destinationImage} />
+      ) : (
+        <View style={[styles.destinationImage, styles.destinationPlaceholder]}>
+          <Ionicons color={colors.primary} name="location" size={22} />
+        </View>
+      )}
       <View style={styles.flex}>
-        <Txt variant="bodyStrong">{destination.name}</Txt>
-        <Txt color="muted" variant="caption">
-          {destination.tags}
+        <Txt numberOfLines={1} variant="bodyStrong">
+          {name}
         </Txt>
+        {meta ? (
+          <Txt color="muted" numberOfLines={1} variant="caption">
+            {meta}
+          </Txt>
+        ) : null}
       </View>
       <Ionicons
         color={selected ? colors.primary : colors.textSubtle}
@@ -418,6 +506,8 @@ const useStyles = makeStyles((c) => ({
   },
   destinationSelected: { borderColor: c.primary, backgroundColor: c.primarySoft },
   destinationImage: { width: 64, height: 52, borderRadius: 10, backgroundColor: c.surfaceAlt },
+  destinationPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: c.primarySoft },
+  searchGap: { marginTop: 12 },
   readonly: {
     minHeight: 52,
     flexDirection: 'row',

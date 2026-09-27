@@ -46,7 +46,7 @@ export default function NotificationsScreen() {
   const items = notifications.data?.notifications ?? [];
 
   return (
-    <Screen header={<Header title="Notifications" />}>
+    <Screen header={<Header title="Notifications" />} onRefresh={notifications.reload}>
       <SegmentTabs onChange={setTab} options={TABS.map((t) => t.label)} value={tab} />
       <View style={styles.list}>
         {notifications.loading ? <LoadingState /> : null}

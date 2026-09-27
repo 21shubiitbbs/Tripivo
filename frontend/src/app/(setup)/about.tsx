@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Button, ChipRow, ErrorText, Field, Header, Screen, Txt } from '../../components/ui';
+import { PlacePickerField } from '../../components/PlaceSearch';
 import { useAuth, useProfile } from '../../lib/auth';
 import { errorMessage } from '../../lib/format';
 import { makeStyles } from '../../theme';
@@ -17,6 +18,8 @@ export default function AboutYouScreen() {
   const [age, setAge] = useState(profile.age ? String(profile.age) : '');
   const [gender, setGender] = useState(profile.gender ?? '');
   const [city, setCity] = useState(profile.city ?? '');
+  // Set when the city is picked from search (undefined = unchanged, null = cleared).
+  const [cityPlaceId, setCityPlaceId] = useState<string | null | undefined>(undefined);
   const [profession, setProfession] = useState(profile.profession ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +32,7 @@ export default function AboutYouScreen() {
         name: name.trim(),
         age: age ? Number(age) : null,
         gender,
-        city: city.trim(),
+        ...(cityPlaceId ? { cityPlaceId } : { city: city.trim(), ...(cityPlaceId === null ? { cityPlaceId: null } : {}) }),
         profession: profession.trim(),
       });
       router.push('/interests');
@@ -64,7 +67,20 @@ export default function AboutYouScreen() {
           </Txt>
           <ChipRow onChange={setGender} options={GENDERS} value={gender} />
         </View>
-        <Field autoCapitalize="words" icon="location-outline" onChangeText={setCity} placeholder="City" value={city} />
+        <PlacePickerField
+          onChangeText={(text) => {
+            // Typed without picking: saved as plain text, unlinked from any place.
+            setCity(text);
+            setCityPlaceId(null);
+          }}
+          onSelect={(place, label) => {
+            setCity(label);
+            setCityPlaceId(place.id);
+          }}
+          placeholder="City you live in"
+          scope="city"
+          value={city}
+        />
         <Field
           autoCapitalize="words"
           icon="briefcase-outline"

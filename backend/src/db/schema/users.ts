@@ -34,6 +34,8 @@ export type TravelProfileRow = Timestamps & {
   travel_styles: string[];
   /** Set when profile setup is finished. */
   completed_at: Date | null;
+  /** The place picked for `city`, if it came from place search. */
+  city_place_id: string | null;
 };
 
 /** 1:1 with travel_profiles; the criteria used to match travellers with trips. */

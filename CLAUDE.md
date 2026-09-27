@@ -88,7 +88,15 @@ There is no test framework in either package yet. Before you call a task done, r
     - `GET /api/users/:id` returns a public profile with `isFollowing`/`isBlocked`.
     - `POST|DELETE /api/users/:id/follow` and `/block` follow or block a user.
     - `GET /api/users/me/blocked` and `/me/contacts` list blocked users and the people you share a room with.
-  - `destinations/`: `GET /api/destinations` returns the catalog seeded by migration 004.
+  - `places/`: real place search. This replaced the fixed destination list, which is now only a fallback.
+    - `GET /api/places/autocomplete?q=&scope=destination|city&lat=&lng=` requires auth and is limited to 30 requests per 10 s per IP. Candidates are re-ranked by kind (city above village above hamlet), name match and distance from `lat/lng`.
+    - `GET /api/places/:id` returns a place with coordinates and a photo, looked up on Wikipedia the first time and then stored on the place.
+    - `GET /api/places/popular` ranks places by open upcoming trips; `GET /api/places/trending` ranks them by the last 14 days of new trips, joins, requests and saves. Both are padded from `destinations` when there's little data.
+    - The provider is chosen by `PLACES_PROVIDER`: `photon` (the default, OpenStreetMap, no key; `PHOTON_URL` points at a self-hosted instance) or `google` (Places API New, needs `GOOGLE_PLACES_API_KEY`).
+    - Places are stored in `places` when first returned. Photon autocomplete responses are cached for 7 days in `place_search_cache`; Google results aren't, per its terms.
+    - If the provider fails, places seen before plus the catalog are searched; when that finds nothing, the endpoint returns 503 `places_unavailable`.
+    - Trips store `place_id`, `country` and the place's coordinates and photo (`POST /api/trips { placeId, … }`, where `destination` text is still accepted). `GET /api/trips?placeId=` matches trips linked to the place, named like it, or within 60 km.
+    - `PATCH /users/me { cityPlaceId }` links the home city; the profile returns `homeLocation`.
   - `trips/`:
     - `GET /api/trips` searches with query params `q`, `category`, `activities`, `groupSize`, `budget` (`under5k|5k-10k|10k-20k|20k+`), `from`, `to`, `lat`, `lng`, `radiusKm`, `saved`. `GET /api/trips/mine` returns trips where you have a `membership`. `POST /api/trips` creates a trip.
     - `GET /api/trips/:id` returns the detail: itinerary, travelers, reviews, `ratingDistribution`, `chatRoomId`, `canReview` and `pendingRequestCount`.
@@ -110,6 +118,7 @@ There is no test framework in either package yet. Before you call a task done, r
   - Repository functions take an optional `db: Queryable = pool` as their last argument, so they can be combined inside `withTransaction(async (client) => ...)` from `transaction.ts`.
   - `migrator.ts` applies the SQL files in `backend/migrations/` once each, in filename order, each inside a transaction, under an advisory lock, and records them in `schema_migrations`. `npm run db:migrate` (`src/scripts/migrate.ts`) runs them without starting the API.
   - To change the schema, add a new `NNN_name.sql` file; never edit one that has already been applied. `002_core_schema.sql` holds the domain model:
+    - `006_places.sql` adds `places`, `place_search_cache`, `trips.place_id/country` and `travel_profiles.city_place_id`.
     - `005_email_password_auth.sql` adds `users.email_verified_at/terms_accepted_at/password_changed_at`, `sessions`, `email_codes` and `auth_events`.
     - `004_app_features.sql` adds:
       - profile fields (`users.username`, `travel_profiles.age/gender/city/profession/travel_styles/completed_at`)
@@ -158,7 +167,10 @@ Because the package uses NodeNext ESM, relative imports between backend files mu
   - Screens load data with `useQuery(key, fetcher, { pollMs? })` from `src/lib/useQuery.ts`. It refetches when the screen gains focus and when `key` changes. Screens show `LoadingState`/`ErrorState` from the UI kit, and mutations call `api.ts` and then `reload()`.
   - Chat polls every 4 s and the Messages tab every 10 s. There are no websockets yet.
   - `src/lib/appData.tsx` holds only client-side UI state: the search filters and recent searches, saved on the device.
-  - `src/data/catalog.ts` has the fixed lists (interests, group sizes, budget keys) and the onboarding photos.
+  - `src/data/catalog.ts` has the fixed lists (interests, group sizes, budget keys) and the onboarding photos. Destinations are not fixed: every place input uses `src/components/PlaceSearch.tsx`.
+    - `usePlaceSuggestions` debounces input by 300 ms and ignores stale responses. `PlaceResults` lists suggestions with the OpenStreetMap attribution the licence requires. `PlacePickerField` is a form field; typed text that isn't picked is saved as plain text.
+    - The places screens use it: Create Trip step 1 (search plus "Popular with travelers"), Search (suggestions, "Search trips for …", trending), Filters, the city in profile setup and Edit Profile, Home's popular places, and results by `placeId`.
+    - `useApproxLocation()` (last known device position without prompting, else the home city) biases suggestions. The map falls back to the home city when device location is unavailable.
   - Photos are picked with `pickAndUploadSquarePhoto()` (base64 → `POST /uploads`).
 - **Theme** (`src/theme.tsx`): light and dark palettes (primary blue `#1D6AE5`). The preference (system/light/dark, set in Settings) is saved under `tripivo.theme`. Build styles with `const useStyles = makeStyles((c) => ({...}))` rather than `StyleSheet.create` with hard-coded colors, so dark mode keeps working. Content is capped at `MAX_CONTENT_WIDTH` (560).
 - **UI kit** (`src/components/ui.tsx`): `Screen` (safe area, scroll, pinned `header`/`footer`), `Header`, `Txt`, `Button`, `Field`, `SearchBar`, `Chip`/`ChipRow`, `SegmentTabs`, `UnderlineTabs`, `RadioOption`, `InterestGrid`, `StepProgress`, `Avatar`, `ListRow` and others. Trip cards are in `trips.tsx`, and itinerary/travelers/reviews sections in `tripSections.tsx`. `Calendar.tsx` is a dependency-free date picker. The map view draws the real trip coordinates (and the device location, via `expo-location`) onto an SVG illustration (`MapIllustration.tsx`); it isn't a tiled map.

@@ -12,6 +12,7 @@ import {
   stringList,
 } from '../../shared/http/validate.js';
 import { findDestinationByName } from '../destinations/destinations.repository.js';
+import { getPlace } from '../places/places.service.js';
 import { insertNotification } from '../notifications/notifications.repository.js';
 import { findPublicUserById } from '../users/users.repository.js';
 import {
@@ -83,8 +84,13 @@ const CATEGORIES = ['trekking', 'beaches', 'nightlife', 'budget', 'weekend'] as 
 const GROUP_SIZES = ['2-4', '5-8', '9-12', '12+'] as const;
 const BUDGETS = ['under5k', '5k-10k', '10k-20k', '20k+'] as const;
 
-/** Query string of GET /trips → search. */
-export function parseTripSearch(viewerId: string, query: Record<string, unknown>): TripSearch {
+/** Trips within this distance of a searched place count as going there (e.g. beaches near Goa). */
+const PLACE_RADIUS_KM = 60;
+
+/** Query string of GET /trips → search. `placeId` (from place search) needs a lookup, hence async. */
+export async function parseTripSearch(viewerId: string, query: Record<string, unknown>): Promise<TripSearch> {
+  const placeId = typeof query.placeId === 'string' && query.placeId ? query.placeId : null;
+  const place = placeId ? await getPlace(placeId).catch(() => null) : null;
   const latitude = optionalNumber(query.lat, 'lat');
   const longitude = optionalNumber(query.lng, 'lng');
   return {
@@ -100,6 +106,9 @@ export function parseTripSearch(viewerId: string, query: Record<string, unknown>
     longitude: latitude !== undefined && longitude !== undefined ? longitude : undefined,
     radiusKm: optionalNumber(query.radiusKm, 'radiusKm'),
     savedOnly: query.saved === 'true',
+    place: place
+      ? { id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude, radiusKm: PLACE_RADIUS_KM }
+      : undefined,
     limit: optionalInt(query.limit, 'limit', 1, 100) ?? undefined,
   };
 }
@@ -153,7 +162,10 @@ const BUDGET_RANGES: Record<(typeof BUDGETS)[number], [number | null, number | n
 };
 
 export async function createTrip(viewerId: string, body: Record<string, unknown>) {
-  const destinationName = requiredString(body.destination, 'destination', 100);
+  // A place picked from place search (preferred), or free text for older clients.
+  const placeId = typeof body.placeId === 'string' && body.placeId ? body.placeId : null;
+  const place = placeId ? await getPlace(placeId) : null;
+  const destinationName = place?.name ?? requiredString(body.destination, 'destination', 100);
   const startDate = requiredDate(body.startDate, 'startDate');
   const endDate = requiredDate(body.endDate, 'endDate');
   if (endDate <= startDate) throw HttpError.badRequest('The trip must end after it starts');
@@ -177,8 +189,10 @@ export async function createTrip(viewerId: string, body: Record<string, unknown>
         title,
         description: optionalString(body.description, 'description', 4000) ?? null,
         audience: optionalString(body.audience, 'audience', 300) ?? null,
-        destination: catalog?.name ?? destinationName,
-        coverImage: optionalString(body.coverImage, 'coverImage', 2000) ?? catalog?.image ?? null,
+        destination: place ? place.name : (catalog?.name ?? destinationName),
+        placeId: place && !place.id.startsWith('catalog:') ? place.id : null,
+        country: place?.country ?? null,
+        coverImage: optionalString(body.coverImage, 'coverImage', 2000) ?? place?.image ?? catalog?.image ?? null,
         startDate,
         endDate,
         budgetMin,
@@ -186,8 +200,8 @@ export async function createTrip(viewerId: string, body: Record<string, unknown>
         maxMembers: optionalInt(body.maxMembers, 'maxMembers', 2, 100) ?? 8,
         activities: stringList(body.activities, 'activities') ?? [],
         joinMethod: body.joinMethod === undefined ? 'approval' : oneOf(JOIN_METHODS, body.joinMethod, 'joinMethod'),
-        latitude: catalog?.latitude ?? null,
-        longitude: catalog?.longitude ?? null,
+        latitude: place?.latitude ?? catalog?.latitude ?? null,
+        longitude: place?.longitude ?? catalog?.longitude ?? null,
       },
       client,
     ),

@@ -7,6 +7,7 @@ import { StreetMap } from '../../components/MapIllustration';
 import { tripImage } from '../../components/trips';
 import { EmptyState, ErrorState, Header, LoadingState, Screen, Txt } from '../../components/ui';
 import { searchTrips, type TripSummary } from '../../lib/api';
+import { useProfile } from '../../lib/auth';
 import { useQuery } from '../../lib/useQuery';
 import { makeStyles, useTheme } from '../../theme';
 
@@ -35,6 +36,7 @@ function project(points: Coordinates[]) {
 export default function MapScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
+  const { homeLocation, city } = useProfile();
   const [location, setLocation] = useState<LocationState>({ status: 'locating' });
 
   useEffect(() => {
@@ -54,7 +56,9 @@ export default function MapScreen() {
     };
   }, []);
 
-  const coords = location.status === 'found' ? location.coords : null;
+  // No device location: use the home city from the profile before giving up and showing everything.
+  const coords = location.status === 'found' ? location.coords : location.status === 'unavailable' ? homeLocation : null;
+  const aroundHome = location.status !== 'found' && coords !== null;
   const trips = useQuery(
     `map-${coords ? `${coords.latitude.toFixed(2)},${coords.longitude.toFixed(2)}` : 'all'}`,
     async () => {
@@ -143,7 +147,11 @@ export default function MapScreen() {
       <View style={styles.legend}>
         <Ionicons color={colors.primary} name="navigate" size={14} />
         <Txt color="muted" variant="caption">
-          {coords ? `Showing trips within ${NEARBY_KM} km of you` : 'Location unavailable: showing all trips'}
+          {aroundHome
+            ? `Showing trips within ${NEARBY_KM} km of ${city?.split(',')[0] ?? 'your home city'}`
+            : coords
+              ? `Showing trips within ${NEARBY_KM} km of you`
+              : 'Location unavailable: showing all trips. Add your city in Edit Profile.'}
         </Txt>
       </View>
     </Screen>

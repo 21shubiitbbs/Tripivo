@@ -2,10 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
+import { PlaceResults, usePlaceSuggestions } from '../../components/PlaceSearch';
 import { DestinationTile } from '../../components/trips';
 import { BackButton, ChipRow, Screen, SearchBar, SectionTitle, Txt } from '../../components/ui';
-import { getDestinations, type TripCategory } from '../../lib/api';
-import { useAppData } from '../../lib/appData';
+import { getTrendingPlaces, type Place, type RankedPlace, type TripCategory } from '../../lib/api';
+import { useAppData, type RecentSearch } from '../../lib/appData';
+import { useApproxLocation } from '../../lib/useApproxLocation';
 import { useQuery } from '../../lib/useQuery';
 import { makeStyles, useTheme } from '../../theme';
 
@@ -17,25 +19,35 @@ const CATEGORIES: { label: string; key: TripCategory | null }[] = [
   { label: 'Weekend', key: 'weekend' },
 ];
 
-// 14. Search.
+// 14. Search: typing suggests real places (and a plain text search for trip names); trending
+// destinations come from the last two weeks of trip activity.
 export default function SearchScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const { recentSearches, addRecentSearch } = useAppData();
+  const near = useApproxLocation();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All');
-  const destinations = useQuery('destinations', getDestinations).data ?? [];
-  const trending = destinations.filter((d) => d.trending).slice(0, 4);
-  const needle = query.trim().toLowerCase();
-  const suggestions = needle
-    ? destinations.filter((d) => d.name.toLowerCase().includes(needle) || d.tags.toLowerCase().includes(needle))
-    : [];
+  const trending = useQuery('trending-places', () => getTrendingPlaces(4));
+  const suggestions = usePlaceSuggestions(query, 'destination', near);
+  const categoryKey = CATEGORIES.find((c) => c.label === category)?.key ?? '';
 
-  function search(term: string) {
-    const clean = term.trim();
-    if (clean) addRecentSearch(clean);
-    const categoryKey = CATEGORIES.find((c) => c.label === category)?.key ?? '';
-    router.push({ pathname: '/results', params: { q: clean, category: categoryKey } });
+  function open(search: RecentSearch) {
+    addRecentSearch(search);
+    router.push({
+      pathname: '/results',
+      params: search.placeId
+        ? { placeId: search.placeId, placeName: search.label, category: categoryKey }
+        : { q: search.label, category: categoryKey },
+    });
+  }
+
+  function openPlace(place: Place) {
+    open({ label: place.name, placeId: place.id, subtitle: place.subtitle });
+  }
+
+  function openRanked(place: RankedPlace) {
+    open(place.placeId ? { label: place.name, placeId: place.placeId, subtitle: place.subtitle } : { label: place.name });
   }
 
   return (
@@ -47,7 +59,7 @@ export default function SearchScreen() {
             <SearchBar
               autoFocus
               onChangeText={setQuery}
-              placeholder="Search destinations..."
+              placeholder="Search places or trips..."
               right={
                 <Pressable accessibilityLabel="Filters" hitSlop={10} onPress={() => router.push('/filters')}>
                   <Ionicons color={colors.primary} name="options-outline" size={20} />
@@ -61,25 +73,38 @@ export default function SearchScreen() {
     >
       <ChipRow onChange={setCategory} options={CATEGORIES.map((c) => c.label)} value={category} />
 
-      {needle ? (
-        <View style={styles.section}>
-          {suggestions.map((d) => (
-            <SearchRow icon="location-outline" key={d.id} label={d.name} onPress={() => search(d.name)} sub={d.tags} />
-          ))}
-          <SearchRow icon="search" label={`Search “${query.trim()}”`} onPress={() => search(query)} />
-        </View>
+      {query.trim().length >= 2 ? (
+        <PlaceResults
+          footer={
+            <SearchRow icon="search" label={`Search trips for “${query.trim()}”`} onPress={() => open({ label: query.trim() })} />
+          }
+          onSelect={openPlace}
+          suggestions={suggestions}
+        />
       ) : (
         <>
           {recentSearches.length ? <SectionTitle title="Recent Searches" /> : null}
-          {recentSearches.map((term) => (
-            <SearchRow icon="time-outline" key={term} label={term} onPress={() => search(term)} />
+          {recentSearches.map((search) => (
+            <SearchRow
+              icon={search.placeId ? 'location-outline' : 'time-outline'}
+              key={`${search.placeId ?? ''}${search.label}`}
+              label={search.label}
+              onPress={() => open(search)}
+              sub={search.subtitle ?? undefined}
+            />
           ))}
 
           <SectionTitle title="Trending Now" />
           <View style={styles.grid}>
-            {trending.map((d) => (
-              <View key={d.id} style={styles.gridCell}>
-                <DestinationTile height={110} image={d.image} name={d.name} onPress={() => search(d.name)} width="100%" />
+            {(trending.data ?? []).map((place) => (
+              <View key={place.id} style={styles.gridCell}>
+                <DestinationTile
+                  height={110}
+                  image={place.image}
+                  name={place.name}
+                  onPress={() => openRanked(place)}
+                  width="100%"
+                />
               </View>
             ))}
           </View>
@@ -124,7 +149,6 @@ const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
   pressed: { opacity: 0.7 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8 },
-  section: { marginTop: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   rowIcon: {
     width: 32,

@@ -17,6 +17,8 @@ import type { NotificationRow, ReportRow, UserBlockRow, UserFollowRow } from './
 import type {
   DestinationRow,
   ExpenseRow,
+  PlaceRow,
+  PlaceSearchCacheRow,
   ItineraryDayRow,
   JoinRequestRow,
   SavedTripRow,
@@ -67,6 +69,8 @@ export type Tables = {
   sessions: SessionRow;
   email_codes: EmailCodeRow;
   auth_events: AuthEventRow;
+  places: PlaceRow;
+  place_search_cache: PlaceSearchCacheRow;
 };
 
 export type TableName = keyof Tables;

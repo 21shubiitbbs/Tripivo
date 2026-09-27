@@ -109,7 +109,7 @@ export function DestinationTile({
   height,
 }: {
   name: string;
-  image: string;
+  image: string | null;
   onPress?: () => void;
   width: number | `${number}%`;
   height: number;
@@ -122,7 +122,7 @@ export function DestinationTile({
       onPress={onPress}
       style={({ pressed }) => [styles.tile, { width, height }, pressed && styles.pressed]}
     >
-      <Image source={{ uri: image }} style={styles.tileImage} />
+      <Image source={{ uri: image ?? images.goaPalms }} style={styles.tileImage} />
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.65)']} style={styles.tileShade} />
       <Txt color="inverse" style={styles.tileLabel} variant="bodyStrong">
         {name}

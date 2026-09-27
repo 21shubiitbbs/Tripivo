@@ -28,7 +28,7 @@ export default function MyTripsScreen() {
   const visible = trips.data?.filter((trip) => trip.phase === phase) ?? [];
 
   return (
-    <Screen edges={['top']}>
+    <Screen edges={['top']} onRefresh={trips.reload}>
       <Txt style={styles.title} variant="h1">
         My Trips
       </Txt>

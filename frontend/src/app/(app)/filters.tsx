@@ -3,7 +3,9 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { DatePickerField, toIsoDate } from '../../components/Calendar';
-import { Button, Chip, Field, Header, Screen, Txt, type MciName } from '../../components/ui';
+import { PlaceResults, usePlaceSuggestions } from '../../components/PlaceSearch';
+import { useApproxLocation } from '../../lib/useApproxLocation';
+import { Button, Chip, SearchBar, Header, Screen, Txt, type MciName } from '../../components/ui';
 import { BUDGETS, GROUP_SIZES, interests, PROFILE_INTERESTS } from '../../data/catalog';
 import { emptyFilters, useAppData } from '../../lib/appData';
 import { makeStyles, useTheme } from '../../theme';
@@ -14,6 +16,8 @@ export default function FiltersScreen() {
   const { colors } = useTheme();
   const { filters, setFilters } = useAppData();
   const [draft, setDraft] = useState(filters);
+  const [placeQuery, setPlaceQuery] = useState('');
+  const suggestions = usePlaceSuggestions(placeQuery, 'destination', useApproxLocation());
   const today = toIsoDate(new Date());
 
   function toggleInterest(key: string) {
@@ -29,7 +33,7 @@ export default function FiltersScreen() {
     setFilters(draft);
     // Back to the results that opened the filters (they reload with the new filters), or on to
     // new results when opened from Search.
-    router.dismissTo({ pathname: '/results', params: { q: draft.destination } });
+    router.dismissTo('/results');
   }
 
   return (
@@ -50,12 +54,29 @@ export default function FiltersScreen() {
       }
     >
       <Label text="Destination" />
-      <Field
-        icon="search"
-        onChangeText={(destination) => setDraft({ ...draft, destination })}
-        placeholder="Search destination"
-        value={draft.destination}
-      />
+      {draft.destination ? (
+        <View style={styles.selectedPlace}>
+          <Txt style={styles.flex} variant="bodyStrong">
+            {draft.destination.name}
+          </Txt>
+          <Pressable accessibilityLabel="Clear destination" hitSlop={8} onPress={() => setDraft({ ...draft, destination: null })}>
+            <Txt color="primary" variant="label">
+              Change
+            </Txt>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <SearchBar onChangeText={setPlaceQuery} placeholder="Search any destination" value={placeQuery} />
+          <PlaceResults
+            onSelect={(place) => {
+              setDraft({ ...draft, destination: { id: place.id, name: place.name } });
+              setPlaceQuery('');
+            }}
+            suggestions={suggestions}
+          />
+        </>
+      )}
 
       <Label text="Date Range" />
       <View style={styles.dates}>
@@ -143,6 +164,17 @@ const useStyles = makeStyles((c) => ({
   label: { marginTop: 20, marginBottom: 10 },
   row: { flexDirection: 'row', gap: 10 },
   dates: { gap: 10 },
+  selectedPlace: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: c.primary,
+    backgroundColor: c.primarySoft,
+  },
   budgetGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
   budgetCell: { width: '50%', padding: 4 },
   interestRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

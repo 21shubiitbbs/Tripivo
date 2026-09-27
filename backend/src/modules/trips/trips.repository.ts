@@ -10,6 +10,8 @@ export type TripSummaryRecord = {
   id: string;
   title: string | null;
   destination: string;
+  placeId: string | null;
+  country: string | null;
   coverImage: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -49,7 +51,7 @@ function distanceSql(latParam: string, lngParam: string) {
 
 /** Columns of TripSummaryRecord. `$1` must be the viewer's user id; `$2`/`$3` lat/lng or null. */
 const SUMMARY_COLUMNS = `
-  t.id, t.title, t.destination, t.cover_image AS "coverImage",
+  t.id, t.title, t.destination, t.place_id AS "placeId", t.country, t.cover_image AS "coverImage",
   t.start_date AS "startDate", t.end_date AS "endDate", t.max_members AS "maxMembers",
   (SELECT count(*)::int FROM (${ACTIVE_MEMBERS}) m) AS "memberCount",
   t.budget_min::float8 AS "budgetMin", t.budget_max::float8 AS "budgetMax", t.currency,
@@ -94,6 +96,8 @@ export type TripSearch = {
   longitude?: number;
   /** With latitude/longitude: only trips within this many km, nearest first. */
   radiusKm?: number;
+  /** Trips going to this place: linked to it, named like it, or within `place.radiusKm` of it. */
+  place?: { id: string; name: string; latitude: number | null; longitude: number | null; radiusKm: number };
   savedOnly?: boolean;
   limit?: number;
 };
@@ -135,7 +139,15 @@ export async function searchTrips(search: TripSearch, db: Queryable = pool): Pro
 
   if (search.query) {
     const pattern = param(`%${search.query}%`);
-    where.push(`(t.title ILIKE ${pattern} OR t.destination ILIKE ${pattern})`);
+    where.push(`(t.title ILIKE ${pattern} OR t.destination ILIKE ${pattern} OR t.country ILIKE ${pattern})`);
+  }
+  if (search.place) {
+    const { id, name, latitude, longitude, radiusKm } = search.place;
+    const matches = [`t.place_id = ${param(id)}`, `lower(t.destination) = lower(${param(name)})`];
+    if (latitude !== null && longitude !== null) {
+      matches.push(`${distanceSql(param(latitude), param(longitude))} <= ${param(radiusKm)}::float8`);
+    }
+    where.push(`(${matches.join(' OR ')})`);
   }
   if (search.activities?.length) where.push(`t.activities && ${param(search.activities)}::text[]`);
   if (search.category) where.push(CATEGORY_SQL[search.category]);
@@ -301,6 +313,8 @@ export type NewTrip = {
   description: string | null;
   audience: string | null;
   destination: string;
+  placeId: string | null;
+  country: string | null;
   coverImage: string | null;
   startDate: string;
   endDate: string;
@@ -318,8 +332,8 @@ export async function insertTrip(trip: NewTrip, db: Queryable): Promise<string> 
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO trips (creator_id, title, description, audience, destination, cover_image,
                         start_date, end_date, budget_min, budget_max, max_members, activities,
-                        join_method, latitude, longitude, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'open')
+                        join_method, latitude, longitude, place_id, country, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'open')
      RETURNING id`,
     [
       trip.creatorId,
@@ -337,6 +351,8 @@ export async function insertTrip(trip: NewTrip, db: Queryable): Promise<string> 
       trip.joinMethod,
       trip.latitude,
       trip.longitude,
+      trip.placeId,
+      trip.country,
     ],
   );
   const tripId = rows[0].id;

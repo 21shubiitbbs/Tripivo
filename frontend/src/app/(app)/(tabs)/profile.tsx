@@ -14,15 +14,16 @@ export default function ProfileScreen() {
   const { refreshProfile } = useAuth();
   const profile = useProfile();
 
-  // Stats change as the user joins trips and gains followers.
+  // Stats change as the user joins trips and gains followers, so refresh when the tab is opened,
+  // unless the profile was loaded in the last 30 seconds. Pull down to force a refresh.
   useFocusEffect(
     useCallback(() => {
-      refreshProfile().catch(() => {});
+      refreshProfile({ maxAgeMs: 30_000 }).catch(() => {});
     }, [refreshProfile]),
   );
 
   return (
-    <Screen edges={['top']}>
+    <Screen edges={['top']} onRefresh={() => refreshProfile()}>
       <View style={styles.topBar}>
         <Txt variant="h1">Profile</Txt>
         <IconButton

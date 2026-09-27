@@ -36,7 +36,11 @@ type Auth = {
   signOut: () => Promise<void>;
   /** Saves profile changes to the API. Rejects with the API's message on failure. */
   updateProfile: (changes: ProfileChanges) => Promise<MyProfile>;
-  refreshProfile: () => Promise<void>;
+  /**
+   * Reloads the profile from the API. Calls made while one is in flight share it, and with
+   * `maxAgeMs` nothing is fetched if the profile was loaded more recently than that.
+   */
+  refreshProfile: (options?: { maxAgeMs?: number }) => Promise<void>;
 };
 
 /**
@@ -81,9 +85,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     draftRef.current = draft;
   }, [draft]);
 
+  const loadedAt = useRef(0);
+  const inFlight = useRef<Promise<void> | null>(null);
+
+  // Functions in the context must keep their identity: screens use them in effect dependencies,
+  // and a new function per profile update made those effects refetch in a loop.
   const applyProfile = useCallback((next: MyProfile) => {
-    setProfile(next);
+    loadedAt.current = Date.now();
+    // Keep the same object when nothing changed, so consumers don't re-render for nothing.
+    setProfile((current) => (current && JSON.stringify(current) === JSON.stringify(next) ? current : next));
     cacheProfile(next);
+  }, []);
+
+  const refreshProfile = useCallback(
+    (options: { maxAgeMs?: number } = {}) => {
+      if (options.maxAgeMs !== undefined && Date.now() - loadedAt.current < options.maxAgeMs) {
+        return Promise.resolve();
+      }
+      inFlight.current ??= getMyProfile()
+        .then(applyProfile)
+        .finally(() => {
+          inFlight.current = null;
+        });
+      return inFlight.current;
+    },
+    [applyProfile],
+  );
+
+  const updateProfile = useCallback(
+    async (changes: ProfileChanges) => {
+      const updated = await updateMyProfile(changes);
+      applyProfile(updated);
+      return updated;
+    },
+    [applyProfile],
+  );
+
+  const setDraft = useCallback((changes: ProfileDraft) => {
+    setDraftState((current) => ({ ...current, ...changes }));
   }, []);
 
   const signOut = useCallback(async () => {
@@ -192,19 +231,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       profile,
       draft,
-      setDraft: (changes) => setDraftState((current) => ({ ...current, ...changes })),
+      setDraft,
       signIn,
       signOut,
-      async updateProfile(changes) {
-        const updated = await updateMyProfile(changes);
-        applyProfile(updated);
-        return updated;
-      },
-      async refreshProfile() {
-        applyProfile(await getMyProfile());
-      },
+      updateProfile,
+      refreshProfile,
     }),
-    [status, session, profile, draft, signIn, signOut, applyProfile],
+    [status, session, profile, draft, setDraft, signIn, signOut, updateProfile, refreshProfile],
   );
 
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
@@ -217,6 +250,8 @@ export function useAuth() {
 }
 
 const EMPTY_PROFILE: MyProfile = {
+  cityPlaceId: null,
+  homeLocation: null,
   emailVerified: false,
   hasPassword: false,
   id: '',

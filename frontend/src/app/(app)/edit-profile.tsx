@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, View } from 'react-native';
 import { Avatar, Button, ErrorText, Field, Header, InterestGrid, Screen, Txt } from '../../components/ui';
 import { interests, PROFILE_INTERESTS } from '../../data/catalog';
 import { fieldError } from '../../lib/api';
+import { PlacePickerField } from '../../components/PlaceSearch';
 import { useAuth, useProfile } from '../../lib/auth';
 import { errorMessage } from '../../lib/format';
 import { pickAndUploadSquarePhoto } from '../../lib/pickPhoto';
@@ -20,6 +21,7 @@ export default function EditProfileScreen() {
   const [username, setUsername] = useState(profile.username ?? '');
   const [bio, setBio] = useState(profile.bio ?? '');
   const [city, setCity] = useState(profile.city ?? '');
+  const [cityPlaceId, setCityPlaceId] = useState<string | null | undefined>(undefined);
   const [profession, setProfession] = useState(profile.profession ?? '');
   const [email, setEmail] = useState(profile.email ?? '');
   const [selected, setSelected] = useState<string[]>(profile.interests);
@@ -52,7 +54,7 @@ export default function EditProfileScreen() {
         name: name.trim(),
         username: username.trim().replace(/^@/, ''),
         bio: bio.trim(),
-        city: city.trim(),
+        ...(cityPlaceId ? { cityPlaceId } : { city: city.trim(), ...(cityPlaceId === null ? { cityPlaceId: null } : {}) }),
         profession: profession.trim(),
         email: email.trim(),
         interests: selected,
@@ -99,7 +101,21 @@ export default function EditProfileScreen() {
           value={username}
         />
         <Field label="Bio" multiline onChangeText={setBio} placeholder="Love exploring new places..." value={bio} />
-        <Field autoCapitalize="words" label="Location" onChangeText={setCity} placeholder="Delhi, India" value={city} />
+        <PlacePickerField
+          label="Location"
+          onChangeText={(text) => {
+            // Typed without picking: saved as plain text, unlinked from any place.
+            setCity(text);
+            setCityPlaceId(null);
+          }}
+          onSelect={(place, label) => {
+            setCity(label);
+            setCityPlaceId(place.id);
+          }}
+          placeholder="Search your city"
+          scope="city"
+          value={city}
+        />
         <Field autoCapitalize="words" label="Profession" onChangeText={setProfession} value={profession} />
         <View>
           <Field

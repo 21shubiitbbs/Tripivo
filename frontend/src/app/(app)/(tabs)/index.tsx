@@ -15,7 +15,7 @@ import {
   SectionTitle,
   Txt,
 } from '../../../components/ui';
-import { getDestinations, getNotifications, searchTrips, type TripCategory } from '../../../lib/api';
+import { getNotifications, getPopularPlaces, searchTrips, type TripCategory } from '../../../lib/api';
 import { useProfile } from '../../../lib/auth';
 import { useQuery } from '../../../lib/useQuery';
 import { makeStyles, useTheme } from '../../../theme';
@@ -43,14 +43,18 @@ export default function HomeScreen() {
   const [category, setCategory] = useState('All');
   const categoryKey = CATEGORIES.find((c) => c.label === category)?.key ?? undefined;
 
-  const destinations = useQuery('destinations', getDestinations);
+  // Ranked by upcoming trips on the platform, not a fixed list.
+  const destinations = useQuery('popular-places', () => getPopularPlaces(10));
   const trips = useQuery(`home-trips-${categoryKey ?? 'all'}`, () => searchTrips({ category: categoryKey, limit: 20 }));
   const notifications = useQuery('notifications-unread', () => getNotifications());
   const unread = notifications.data?.unread ?? 0;
   const firstName = profile.name?.split(' ')[0];
 
   return (
-    <Screen edges={['top']}>
+    <Screen
+      edges={['top']}
+      onRefresh={() => Promise.all([trips.reload(), destinations.reload(), notifications.reload()])}
+    >
       <View style={styles.topBar}>
         <Txt numberOfLines={1} style={styles.flex} variant="h2">
           <Txt style={styles.greeting} variant="h2">
@@ -86,13 +90,20 @@ export default function HomeScreen() {
 
       <SectionTitle action="See all" onAction={() => router.push('/search')} title="Popular Destinations" />
       <ScrollView contentContainerStyle={styles.tiles} horizontal showsHorizontalScrollIndicator={false}>
-        {(destinations.data ?? []).slice(0, 8).map((destination) => (
+        {(destinations.data ?? []).map((destination) => (
           <DestinationTile
             height={130}
             image={destination.image}
             key={destination.id}
             name={destination.name}
-            onPress={() => router.push({ pathname: '/results', params: { q: destination.name } })}
+            onPress={() =>
+              router.push({
+                pathname: '/results',
+                params: destination.placeId
+                  ? { placeId: destination.placeId, placeName: destination.name }
+                  : { q: destination.name },
+              })
+            }
             width={96}
           />
         ))}

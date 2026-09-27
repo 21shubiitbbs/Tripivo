@@ -149,6 +149,9 @@ export type ProfileRecord = {
   travel_styles: string[];
   interests: string[];
   completed_at: Date | null;
+  city_place_id: string | null;
+  home_latitude: number | null;
+  home_longitude: number | null;
   trip_count: number;
   rating: string | null;
   follower_count: number;
@@ -163,7 +166,8 @@ export async function findProfile(userId: string, db: Queryable = pool): Promise
             p.bio, p.age, p.gender, p.city, p.profession,
             COALESCE(p.travel_styles, '{}') AS travel_styles,
             COALESCE(p.interests, '{}') AS interests,
-            p.completed_at,
+            p.completed_at, p.city_place_id,
+            cp.latitude::float8 AS home_latitude, cp.longitude::float8 AS home_longitude,
             (SELECT count(DISTINCT g.trip_id)::int
                FROM group_members gm JOIN groups g ON g.id = gm.group_id
               WHERE gm.user_id = u.id AND gm.status = 'active') AS trip_count,
@@ -174,6 +178,7 @@ export async function findProfile(userId: string, db: Queryable = pool): Promise
             (SELECT count(*)::int FROM user_follows WHERE follower_id = u.id) AS following_count
        FROM users u
        LEFT JOIN travel_profiles p ON p.user_id = u.id
+       LEFT JOIN places cp ON cp.id = p.city_place_id
       WHERE u.id = $1`,
     [userId],
   );
@@ -211,6 +216,7 @@ export type TravelProfileChanges = {
   profession?: string | null;
   travel_styles?: string[];
   interests?: string[];
+  city_place_id?: string | null;
   /** true stamps completed_at (once). */
   completed?: boolean;
 };

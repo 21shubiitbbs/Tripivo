@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -38,6 +39,8 @@ type ScreenProps = {
   scroll?: boolean;
   edges?: Edge[];
   contentStyle?: StyleProp<ViewStyle>;
+  /** Enables pull-to-refresh on scrolling screens; the spinner shows until it resolves. */
+  onRefresh?: () => Promise<unknown>;
 };
 
 export function Screen({
@@ -47,9 +50,23 @@ export function Screen({
   scroll = true,
   edges = ['top', 'bottom'],
   contentStyle,
+  onRefresh,
 }: ScreenProps) {
   const styles = useStyles();
-  const { isDark } = useTheme();
+  const { colors, isDark } = useTheme();
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function refresh() {
+    if (!onRefresh) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } catch {
+      // Screens show their own load errors; the spinner just needs to stop.
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
     <SafeAreaView edges={edges} style={styles.screen}>
@@ -63,6 +80,11 @@ export function Screen({
           <ScrollView
             contentContainerStyle={[styles.column, styles.content, contentStyle]}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              onRefresh ? (
+                <RefreshControl colors={[colors.primary]} onRefresh={refresh} refreshing={refreshing} tintColor={colors.primary} />
+              ) : undefined
+            }
             showsVerticalScrollIndicator={false}
           >
             {children}

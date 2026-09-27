@@ -5,8 +5,8 @@ import { env } from './config/env.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import { chatsRouter } from './modules/chats/chats.routes.js';
-import { destinationsRouter } from './modules/destinations/destinations.routes.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
+import { placesRouter } from './modules/places/places.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { tripsRouter } from './modules/trips/trips.routes.js';
 import { uploadsRouter } from './modules/uploads/uploads.routes.js';
@@ -28,7 +28,7 @@ export function createApp(): Express {
   app.use('/api/health', healthRouter);
   app.use('/api/auth', authRouter);
   app.use('/api/users', usersRouter);
-  app.use('/api/destinations', destinationsRouter);
+  app.use('/api/places', placesRouter);
   app.use('/api/trips', tripsRouter);
   app.use('/api/chats', chatsRouter);
   app.use('/api/notifications', notificationsRouter);

@@ -23,10 +23,10 @@ tripsRouter.use(requireAuth);
 /**
  * Discover open trips. Query: q, category (trekking|beaches|nightlife|budget|weekend),
  * activities (comma list), groupSize (2-4|5-8|9-12|12+), budget (under5k|5k-10k|10k-20k|20k+),
- * from, to (YYYY-MM-DD), lat, lng, radiusKm, saved=true, limit.
+ * from, to (YYYY-MM-DD), lat, lng, radiusKm, placeId (trips going to or near that place), saved=true, limit.
  */
 tripsRouter.get('/', async (request, response) => {
-  response.json({ trips: await discoverTrips(parseTripSearch(response.locals.userId, request.query)) });
+  response.json({ trips: await discoverTrips(await parseTripSearch(response.locals.userId, request.query)) });
 });
 
 /** Trips the user hosts, has joined or has requested to join, with `phase` for the My Trips tabs. */

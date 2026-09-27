@@ -111,6 +111,22 @@ function parseDevMasterOtp(isProduction: boolean): string | null {
   return value;
 }
 
+const PLACES_PROVIDERS = ['photon', 'google'] as const;
+export type PlacesProviderName = (typeof PLACES_PROVIDERS)[number];
+
+function parsePlacesConfig() {
+  const provider = optional('PLACES_PROVIDER') ?? 'photon';
+  if (!(PLACES_PROVIDERS as readonly string[]).includes(provider)) {
+    throw new Error(`PLACES_PROVIDER must be one of ${PLACES_PROVIDERS.join(', ')}, got "${provider}".`);
+  }
+  return {
+    provider: provider as PlacesProviderName,
+    // Photon: OpenStreetMap search, free and keyless. Self-host it for heavy traffic.
+    photonUrl: (optional('PHOTON_URL') ?? 'https://photon.komoot.io').replace(/\/+$/, ''),
+    googleApiKey: provider === 'google' ? required('GOOGLE_PLACES_API_KEY', 'It is required when PLACES_PROVIDER=google.') : undefined,
+  };
+}
+
 const isProduction = process.env.NODE_ENV === 'production';
 const otpProvider = parseOtpProvider(isProduction);
 const sessionSecret = process.env.SESSION_SECRET?.trim();
@@ -156,6 +172,7 @@ export const env = {
   devLoginEnabled: !isProduction && optional('DEV_LOGIN') !== 'false',
   email: parseEmailConfig(isProduction),
   devMasterOtp: parseDevMasterOtp(isProduction),
+  places: parsePlacesConfig(),
   phoneAuth: {
     provider: otpProvider,
     twilio: parseTwilioConfig(otpProvider),

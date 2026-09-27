@@ -1,7 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState, type ComponentProps, type ReactNode } from 'react';
+import { useState, type ComponentProps, type ReactNode, type Ref } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -292,10 +292,15 @@ type FieldProps = TextInputProps & {
   /** Adds a show/hide toggle for passwords. */
   secure?: boolean;
   right?: ReactNode;
+  /** Shown under the field, which is outlined in red. */
+  error?: string;
+  /** Shown under the field when there is no error. */
+  hint?: string;
   containerStyle?: StyleProp<ViewStyle>;
+  ref?: Ref<TextInput>;
 };
 
-export function Field({ icon, label, secure, right, containerStyle, multiline, style, ...props }: FieldProps) {
+export function Field({ icon, label, secure, right, error, hint, containerStyle, multiline, style, ref, ...props }: FieldProps) {
   const styles = useStyles();
   const { colors } = useTheme();
   const [hidden, setHidden] = useState(true);
@@ -307,7 +312,7 @@ export function Field({ icon, label, secure, right, containerStyle, multiline, s
           {label}
         </Txt>
       ) : null}
-      <View style={[styles.field, multiline && styles.fieldMultiline]}>
+      <View style={[styles.field, multiline && styles.fieldMultiline, error ? styles.fieldError : null]}>
         {icon ? <Ionicons color={colors.textSubtle} name={icon} size={18} /> : null}
         <TextInput
           placeholderTextColor={colors.textSubtle}
@@ -315,6 +320,7 @@ export function Field({ icon, label, secure, right, containerStyle, multiline, s
           selectionColor={colors.primary}
           {...props}
           multiline={multiline}
+          ref={ref}
           style={[styles.fieldInput, multiline && styles.fieldInputMultiline, style]}
         />
         {secure ? (
@@ -328,6 +334,46 @@ export function Field({ icon, label, secure, right, containerStyle, multiline, s
         ) : null}
         {right}
       </View>
+      {error ? (
+        <Text accessibilityLiveRegion="polite" style={styles.fieldErrorText}>
+          {error}
+        </Text>
+      ) : hint ? (
+        <Txt color="subtle" style={styles.fieldHint} variant="caption">
+          {hint}
+        </Txt>
+      ) : null}
+    </View>
+  );
+}
+
+export function Checkbox({
+  checked,
+  onChange,
+  children,
+  error,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  children: ReactNode;
+  error?: string;
+}) {
+  const styles = useStyles();
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked }}
+        hitSlop={6}
+        onPress={() => onChange(!checked)}
+        style={styles.checkboxRow}
+      >
+        <View style={[styles.checkbox, checked && styles.checkboxChecked, error ? styles.fieldError : null]}>
+          {checked ? <Ionicons color="#FFFFFF" name="checkmark" size={14} /> : null}
+        </View>
+        <View style={styles.flex}>{children}</View>
+      </Pressable>
+      {error ? <Text style={styles.fieldErrorText}>{error}</Text> : null}
     </View>
   );
 }
@@ -952,6 +998,21 @@ const useStyles = makeStyles((c) => ({
     backgroundColor: c.surface,
   },
   fieldMultiline: { alignItems: 'flex-start', paddingVertical: 12 },
+  fieldError: { borderColor: c.danger },
+  fieldErrorText: { marginTop: 6, marginLeft: 4, color: c.danger, fontSize: 12, lineHeight: 17 },
+  fieldHint: { marginTop: 6, marginLeft: 4 },
+  checkboxRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    marginTop: 1,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: c.textSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: { borderColor: c.primary, backgroundColor: c.primary },
   fieldInput: { flex: 1, minWidth: 0, minHeight: 50, color: c.text, fontSize: 15, ...noWebOutline },
   fieldInputMultiline: { minHeight: 80, textAlignVertical: 'top', paddingTop: 0 },
 

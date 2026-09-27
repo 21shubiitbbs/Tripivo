@@ -7,11 +7,11 @@ import { useAuth, useProfile } from '../../lib/auth';
 import { makeStyles, useTheme, type ThemePreference } from '../../theme';
 
 // Rows without an `href` are placeholders until those settings exist.
-const ROWS: { icon: MciName; title: string; href?: '/edit-profile' | '/notifications' | '/safety' }[] = [
+const ROWS: { icon: MciName; title: string; href?: '/edit-profile' | '/notifications' | '/safety' | '/security' }[] = [
   { icon: 'account-outline', title: 'Account', href: '/edit-profile' },
   { icon: 'lock-outline', title: 'Privacy' },
   { icon: 'bell-outline', title: 'Notifications', href: '/notifications' },
-  { icon: 'shield-key-outline', title: 'Security' },
+  { icon: 'shield-key-outline', title: 'Security', href: '/security' },
   { icon: 'account-cancel-outline', title: 'Blocked Users', href: '/safety' },
   { icon: 'help-circle-outline', title: 'Help & Support' },
   { icon: 'file-document-outline', title: 'Terms & Conditions' },

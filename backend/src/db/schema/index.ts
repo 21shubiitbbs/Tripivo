@@ -1,4 +1,4 @@
-import type { PhoneOtpCodeRow, PhoneOtpSendRow } from './auth.js';
+import type { AuthEventRow, EmailCodeRow, PhoneOtpCodeRow, PhoneOtpSendRow, SessionRow } from './auth.js';
 import type {
   ChatMessageRow,
   ChatPollOptionRow,
@@ -64,6 +64,9 @@ export type Tables = {
   user_follows: UserFollowRow;
   user_blocks: UserBlockRow;
   reports: ReportRow;
+  sessions: SessionRow;
+  email_codes: EmailCodeRow;
+  auth_events: AuthEventRow;
 };
 
 export type TableName = keyof Tables;

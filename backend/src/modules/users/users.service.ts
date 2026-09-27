@@ -38,7 +38,13 @@ export type Profile = {
 };
 
 /** The signed-in user's own profile also carries their contact details. */
-export type MyProfile = Profile & { email: string | null; phone: string | null };
+export type MyProfile = Profile & {
+  email: string | null;
+  emailVerified: boolean;
+  phone: string | null;
+  /** False for Google and phone accounts that haven't set a password. */
+  hasPassword: boolean;
+};
 
 export type PublicProfile = Profile & { isMe: boolean; isFollowing: boolean; isBlocked: boolean };
 
@@ -69,7 +75,13 @@ function toProfile(record: ProfileRecord): Profile {
 export async function getMyProfile(userId: string): Promise<MyProfile> {
   const record = await findProfile(userId);
   if (!record) throw HttpError.unauthorized('Account no longer exists');
-  return { ...toProfile(record), email: record.email, phone: record.phone };
+  return {
+    ...toProfile(record),
+    email: record.email,
+    emailVerified: record.email_verified,
+    phone: record.phone,
+    hasPassword: record.has_password,
+  };
 }
 
 export async function getPublicProfile(viewerId: string, userId: string): Promise<PublicProfile> {
@@ -89,11 +101,11 @@ export async function updateMyProfile(userId: string, body: Record<string, unkno
     throw HttpError.badRequest('Usernames are 3–30 letters, numbers, dots or underscores');
   }
   if (username && (await isUsernameTaken(username, userId))) {
-    throw HttpError.badRequest('That username is taken');
+    throw HttpError.badRequest('That username is taken', { field: 'username' });
   }
 
-  const email = optionalString(body.email, 'email', 200);
-  if (email && !EMAIL_PATTERN.test(email)) throw HttpError.badRequest('Enter a valid email address');
+  const email = optionalString(body.email, 'email', 200)?.toLowerCase();
+  if (email && !EMAIL_PATTERN.test(email)) throw HttpError.badRequest('Enter a valid email address', { field: 'email' });
 
   const completed = body.completed === true;
 
@@ -112,7 +124,7 @@ export async function updateMyProfile(userId: string, body: Record<string, unkno
     } catch (error) {
       // users_email_lower_key: the address belongs to another account.
       if ((error as { code?: string }).code === '23505') {
-        throw HttpError.badRequest('That email is already used by another account');
+        throw HttpError.badRequest('That email is already used by another account', { field: 'email' });
       }
       throw error;
     }

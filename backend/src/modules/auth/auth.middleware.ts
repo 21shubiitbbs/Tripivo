@@ -1,10 +1,15 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { HttpError } from '../../shared/http/errors.js';
-import { readSessionToken } from './session.js';
+import { readSessionToken, type RequestContext } from './session.js';
+
+/** The client's IP and user agent, recorded on new sessions and used for rate limits. */
+export function requestContext(request: Request): RequestContext {
+  return { ip: request.ip ?? null, userAgent: request.get('user-agent') ?? null };
+}
 
 /**
  * Rejects requests without a valid `Authorization: Bearer <session token>` header.
- * On success, `response.locals.userId` holds the signed-in user's ID.
+ * On success, `response.locals.userId` and `response.locals.sessionId` identify the caller.
  */
 export const requireAuth: RequestHandler = async (request, response, next) => {
   const [scheme, token] = request.headers.authorization?.split(' ') ?? [];
@@ -13,9 +18,11 @@ export const requireAuth: RequestHandler = async (request, response, next) => {
   }
 
   try {
-    response.locals.userId = await readSessionToken(token);
+    const session = await readSessionToken(token);
+    response.locals.userId = session.userId;
+    response.locals.sessionId = session.sessionId;
   } catch {
-    throw HttpError.unauthorized('Session expired, please sign in again');
+    throw HttpError.unauthorized('Session expired, please sign in again', { code: 'session_expired' });
   }
   next();
 };

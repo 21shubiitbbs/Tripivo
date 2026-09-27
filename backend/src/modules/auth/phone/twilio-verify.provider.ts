@@ -27,9 +27,9 @@ export class TwilioVerifyOtpProvider implements OtpProvider {
     this.authorization = `Basic ${Buffer.from(`${config.accountSid}:${config.authToken}`).toString('base64')}`;
   }
 
-  async sendCode(phone: string): Promise<void> {
+  async sendCode(phone: string): Promise<null> {
     const response = await this.post('/Verifications', { To: phone, Channel: 'sms' });
-    if (response.ok) return;
+    if (response.ok) return null;
 
     const error = await readTwilioError(response);
     if (error.code === TWILIO_INVALID_PARAMETER) {

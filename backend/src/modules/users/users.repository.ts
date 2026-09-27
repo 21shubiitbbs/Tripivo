@@ -14,21 +14,53 @@ export type GoogleProfile = {
 };
 
 /**
- * Creates the user on first Google sign-in. Google profile details can change, so later
- * sign-ins refresh them, except the name and picture once the user has set their own.
+ * Signs in with Google: the account with this Google ID, else the account that already uses
+ * this (Google-verified) email, which gets linked, else a new account. Profile details from
+ * Google only fill in blanks, so a name or photo the user set themselves is kept.
  */
 export async function upsertGoogleUser(
   profile: GoogleProfile,
   db: Queryable = pool,
 ): Promise<PublicUser> {
+  const existing = await db.query<PublicUser>(
+    `UPDATE users
+        SET email = $2, email_verified_at = COALESCE(email_verified_at, now()),
+            name = COALESCE(name, $3), picture = COALESCE(picture, $4)
+      WHERE google_id = $1
+      RETURNING ${PUBLIC_USER_COLUMNS}`,
+    [profile.googleId, profile.email, profile.name, profile.picture],
+  );
+  if (existing.rows[0]) return existing.rows[0];
+
+  // Linking to an account whose email was never verified: whoever created it didn't prove they
+  // own the address, so their password is discarded (and sessions revoked by the caller's
+  // transaction below). Otherwise someone could pre-register a victim's email and keep access.
+  const linked = await db.query<PublicUser & { was_verified: boolean }>(
+    `WITH target AS (
+       SELECT id, email_verified_at IS NOT NULL AS was_verified FROM users
+        WHERE lower(email) = lower($2) AND google_id IS NULL
+        FOR UPDATE
+     )
+     UPDATE users u
+        SET google_id = $1, email = $2, email_verified_at = COALESCE(u.email_verified_at, now()),
+            password_hash = CASE WHEN target.was_verified THEN u.password_hash ELSE NULL END,
+            name = COALESCE(u.name, $3), picture = COALESCE(u.picture, $4)
+       FROM target
+      WHERE u.id = target.id
+      RETURNING u.id, u.email, u.phone, u.name, u.picture, target.was_verified`,
+    [profile.googleId, profile.email, profile.name, profile.picture],
+  );
+  if (linked.rows[0]) {
+    const { was_verified: wasVerified, ...user } = linked.rows[0];
+    if (!wasVerified) {
+      await db.query('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [user.id]);
+    }
+    return user;
+  }
+
   const { rows } = await db.query<PublicUser>(
-    `INSERT INTO users (google_id, email, name, picture)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (google_id) DO UPDATE
-       SET email = EXCLUDED.email,
-           name = COALESCE(users.name, EXCLUDED.name),
-           picture = COALESCE(users.picture, EXCLUDED.picture),
-           last_login_at = now()
+    `INSERT INTO users (google_id, email, email_verified_at, name, picture)
+     VALUES ($1, $2, now(), $3, $4)
      RETURNING ${PUBLIC_USER_COLUMNS}`,
     [profile.googleId, profile.email, profile.name, profile.picture],
   );
@@ -102,6 +134,8 @@ export function userSummaryJoin(alias: string) {
 export type ProfileRecord = {
   id: string;
   email: string | null;
+  email_verified: boolean;
+  has_password: boolean;
   phone: string | null;
   name: string | null;
   username: string | null;
@@ -124,6 +158,7 @@ export type ProfileRecord = {
 export async function findProfile(userId: string, db: Queryable = pool): Promise<ProfileRecord | null> {
   const { rows } = await db.query<ProfileRecord>(
     `SELECT u.id, u.email, u.phone, u.name, u.username, u.picture,
+            (u.email_verified_at IS NOT NULL) AS email_verified, (u.password_hash IS NOT NULL) AS has_password,
             (u.google_id IS NOT NULL OR u.phone IS NOT NULL) AS verified,
             p.bio, p.age, p.gender, p.city, p.profession,
             COALESCE(p.travel_styles, '{}') AS travel_styles,
@@ -149,13 +184,19 @@ export type UserChanges = {
   name?: string | null;
   username?: string | null;
   picture?: string | null;
+  /** Changing the address clears `email_verified_at`; the new one must be verified again. */
   email?: string | null;
 };
 
 export async function updateUser(userId: string, changes: UserChanges, db: Queryable = pool) {
   const entries = Object.entries(changes).filter(([, value]) => value !== undefined);
   if (entries.length === 0) return;
-  const sets = entries.map(([column], index) => `${column} = $${index + 2}`);
+  const sets = entries.map(([column], index) =>
+    column === 'email'
+      ? `email_verified_at = CASE WHEN lower(email) IS NOT DISTINCT FROM lower($${index + 2}) THEN email_verified_at END,
+         email = $${index + 2}`
+      : `${column} = $${index + 2}`,
+  );
   await db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $1`, [
     userId,
     ...entries.map(([, value]) => value),

@@ -1,7 +1,8 @@
+import { env } from '../../../config/env.js';
 import { HttpError } from '../../../shared/http/errors.js';
 import { upsertPhoneUser } from '../../users/users.repository.js';
 import type { AuthResult } from '../auth.service.js';
-import { createSessionToken } from '../session.js';
+import { createSession, NO_CONTEXT, type RequestContext } from '../session.js';
 import { getOtpProvider } from './otp-provider.js';
 import { normalizePhoneNumber, parseOtpCode } from './phone-number.js';
 import { getOtpSendStats, recordOtpSend } from './phone-otp.repository.js';
@@ -15,6 +16,8 @@ const MAX_SENDS_PER_IP_PER_HOUR = 20;
 export type SendCodeResult = {
   phone: string;
   resendAfterSeconds: number;
+  /** Development only (console provider): the code, since no SMS is sent. */
+  devCode?: string;
 };
 
 async function assertCanSendCode(phone: string, ip: string | null): Promise<void> {
@@ -40,17 +43,22 @@ export async function sendPhoneSignInCode(rawPhone: unknown, ip: string | null):
 
   // Recorded before sending so failed or slow sends still count toward the limits.
   await recordOtpSend(phone, ip);
-  await getOtpProvider().sendCode(phone);
+  const devCode = await getOtpProvider().sendCode(phone);
 
-  return { phone, resendAfterSeconds: RESEND_COOLDOWN_SECONDS };
+  return { phone, resendAfterSeconds: RESEND_COOLDOWN_SECONDS, ...(devCode ? { devCode } : {}) };
 }
 
 /** Checks the code and signs the user in, creating their account on first sign-in. */
-export async function verifyPhoneSignInCode(rawPhone: unknown, rawCode: unknown): Promise<AuthResult> {
+export async function verifyPhoneSignInCode(
+  rawPhone: unknown,
+  rawCode: unknown,
+  context: RequestContext = NO_CONTEXT,
+): Promise<AuthResult> {
   const phone = normalizePhoneNumber(rawPhone);
   const code = parseOtpCode(rawCode);
 
-  const result = await getOtpProvider().checkCode(phone, code);
+  // DEV_MASTER_OTP (development only) signs in any number without checking the provider.
+  const result = env.devMasterOtp && code === env.devMasterOtp ? 'approved' : await getOtpProvider().checkCode(phone, code);
   switch (result) {
     case 'approved':
       break;
@@ -63,5 +71,5 @@ export async function verifyPhoneSignInCode(rawPhone: unknown, rawCode: unknown)
   }
 
   const user = await upsertPhoneUser(phone);
-  return { token: await createSessionToken(user.id), user };
+  return { token: await createSession(user.id, 'phone', context), user };
 }

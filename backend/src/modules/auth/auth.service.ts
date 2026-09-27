@@ -7,7 +7,7 @@ import {
   upsertPhoneUser,
   type PublicUser,
 } from '../users/users.repository.js';
-import { createSessionToken } from './session.js';
+import { createSession, NO_CONTEXT, type RequestContext } from './session.js';
 
 const googleClient = new OAuth2Client();
 
@@ -26,7 +26,7 @@ async function verifyGoogleIdToken(idToken: string): Promise<TokenPayload | unde
 }
 
 /** Verifies a Google ID token, creates or refreshes the user, and starts a session. */
-export async function signInWithGoogle(idToken: string): Promise<AuthResult> {
+export async function signInWithGoogle(idToken: string, context: RequestContext = NO_CONTEXT): Promise<AuthResult> {
   if (env.googleClientIds.length === 0) {
     throw new HttpError(500, 'Google sign-in is not configured on the server');
   }
@@ -43,7 +43,7 @@ export async function signInWithGoogle(idToken: string): Promise<AuthResult> {
     picture: payload.picture ?? null,
   });
 
-  return { token: await createSessionToken(user.id), user };
+  return { token: await createSession(user.id, 'google', context), user };
 }
 
 export async function getCurrentUser(userId: string): Promise<PublicUser> {
@@ -58,8 +58,8 @@ export async function getCurrentUser(userId: string): Promise<PublicUser> {
 export const DEMO_PHONE = '+910000000000';
 
 /** Development only: signs in as the demo account, creating it if needed. */
-export async function signInAsDemoUser(): Promise<AuthResult> {
+export async function signInAsDemoUser(context: RequestContext = NO_CONTEXT): Promise<AuthResult> {
   if (!env.devLoginEnabled) throw HttpError.notFound('Not found');
   const user = await upsertPhoneUser(DEMO_PHONE, 'Demo Traveler');
-  return { token: await createSessionToken(user.id), user };
+  return { token: await createSession(user.id, 'dev', context), user };
 }

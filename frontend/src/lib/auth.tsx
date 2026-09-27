@@ -3,6 +3,7 @@ import {
   ApiError,
   devLogin,
   getMyProfile,
+  logOut,
   setAuthToken,
   setUnauthorizedHandler,
   updateMyProfile,
@@ -22,6 +23,7 @@ export type AuthStatus = 'restoring' | 'signedOut' | 'signedIn';
 
 /** Details collected before an account exists (onboarding, sign-up form), saved on sign-in. */
 export type ProfileDraft = Partial<Pick<ProfileChanges, 'name' | 'email' | 'travelStyles'>>;
+// (Email sign-up sends the name to the API directly; the draft mainly carries onboarding picks.)
 
 type Auth = {
   status: AuthStatus;
@@ -46,6 +48,11 @@ export const BYPASS_LOGIN = process.env.EXPO_PUBLIC_BYPASS_LOGIN === 'true';
 
 // The last profile seen, so the app can start offline without sending the user back to setup.
 const PROFILE_CACHE_KEY = 'tripivo.profile';
+// Set while the stored session came from the login bypass, so turning the flag off discards it
+// instead of leaving the device signed in to the demo account.
+const DEV_SESSION_KEY = 'tripivo.devSession';
+/** The API's demo account (DEMO_PHONE in backend/src/modules/auth/auth.service.ts). */
+const DEMO_PHONE = '+910000000000';
 
 async function loadCachedProfile(userId: string): Promise<MyProfile | null> {
   try {
@@ -80,17 +87,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // End the session on the server too, so the token stops working; best effort offline.
+    await logOut().catch(() => {});
     setAuthToken(null);
     setStatus('signedOut');
     setSession(null);
     setProfile(null);
-    await Promise.allSettled([clearSession(), signOutOfGoogle(), removeItem(PROFILE_CACHE_KEY)]);
+    await Promise.allSettled([
+      clearSession(),
+      signOutOfGoogle(),
+      removeItem(PROFILE_CACHE_KEY),
+      removeItem(DEV_SESSION_KEY),
+    ]);
   }, []);
 
   const signIn = useCallback(
     async (next: Session) => {
       setAuthToken(next.token);
-      await saveSession(next);
+      // A real sign-in replaces any demo session from the login bypass.
+      await Promise.all([saveSession(next), removeItem(DEV_SESSION_KEY)]);
       let loaded = await getMyProfile(next.token);
 
       // Copy what the user typed before the account existed, without overwriting their profile.
@@ -124,8 +139,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function restore() {
       const stored = await loadSession().catch(() => null);
       if (!stored) {
-        if (BYPASS_LOGIN) await signIn(await devLogin());
-        else setStatus('signedOut');
+        if (BYPASS_LOGIN) {
+          await signIn(await devLogin());
+          await setItem(DEV_SESSION_KEY, 'true');
+        } else {
+          setStatus('signedOut');
+        }
+        return;
+      }
+
+      // Signed in by the bypass, which has since been turned off: start signed out. Sessions from
+      // before the marker existed are recognised by the demo account's phone number.
+      const isDemoSession = (await getItem(DEV_SESSION_KEY)) === 'true' || stored.user.phone === DEMO_PHONE;
+      if (!BYPASS_LOGIN && isDemoSession) {
+        setAuthToken(stored.token);
+        await signOut();
         return;
       }
 
@@ -189,6 +217,8 @@ export function useAuth() {
 }
 
 const EMPTY_PROFILE: MyProfile = {
+  emailVerified: false,
+  hasPassword: false,
   id: '',
   name: null,
   username: null,

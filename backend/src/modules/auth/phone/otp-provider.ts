@@ -9,7 +9,8 @@ export type OtpCheckResult = 'approved' | 'invalid' | 'expired' | 'too_many_atte
  * or delegate to a verification service that does (Twilio Verify). Phone numbers are E.164.
  */
 export interface OtpProvider {
-  sendCode(phone: string): Promise<void>;
+  /** Resolves with the code only when nothing is actually sent (console provider, development). */
+  sendCode(phone: string): Promise<string | null>;
   checkCode(phone: string, code: string): Promise<OtpCheckResult>;
 }
 

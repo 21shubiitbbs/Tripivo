@@ -68,3 +68,6 @@ export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
 
 export const REPORT_STATUSES = ['open', 'reviewing', 'resolved', 'dismissed'] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
+
+export const EMAIL_CODE_PURPOSES = ['verify_email', 'reset_password'] as const;
+export type EmailCodePurpose = (typeof EMAIL_CODE_PURPOSES)[number];

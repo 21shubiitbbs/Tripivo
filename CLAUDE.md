@@ -47,16 +47,39 @@ There is no test framework in either package yet. Before you call a task done, r
 - `server.ts` is the process entry point. It applies migrations (and exits if PostgreSQL is unreachable), starts listening, and shuts down gracefully on SIGTERM/SIGINT. `app.ts` builds the Express app (`createApp()`) without starting it: `cors()`, `express.json()`, the routers under `/api`, then `notFoundHandler` and `errorHandler`.
 - `config/env.ts` is the only place that reads `process.env`. It exports a validated, typed `env` object. Add new settings there, not inline.
 - `modules/<feature>/` holds one folder per feature, split into `*.routes.ts` (HTTP only: parse input, call a service, send JSON) → `*.service.ts` (business rules, throws `HttpError`) → `*.repository.ts` (all SQL). Follow this split for new features such as trips, groups and chat.
-- **Errors**: throw `HttpError` (`HttpError.badRequest(...)`, `.unauthorized(...)`, etc. in `shared/http/errors.ts`) from anywhere. Express 5 forwards rejected async handlers to `errorHandler`, so don't wrap handlers in try/catch just to send error responses. Every error response has the shape `{ error: string }`, and unexpected errors are logged and returned as a generic 500.
+- **Errors**: throw `HttpError` (`HttpError.badRequest(...)`, `.unauthorized(...)`, etc. in `shared/http/errors.ts`) from anywhere. Express 5 forwards rejected async handlers to `errorHandler`, so don't wrap handlers in try/catch just to send error responses. Every error response has the shape `{ error: string, code?: string, field?: string }`. `code` is a machine-readable reason (`email_not_verified`, `email_taken`, `invalid_credentials`, `weak_password`, `rate_limited`, `session_expired`, …) and `field` names the input a form should highlight. Pass them with `HttpError.badRequest(message, { code, field })`. Unexpected errors are logged and returned as a generic 500.
 - **Auth** (`modules/auth/`):
-  - `POST /api/auth/google` takes `{ idToken }`, verifies it against `GOOGLE_CLIENT_IDS` with `google-auth-library`, upserts the user, and returns `{ token, user }`. The token is a stateless 30-day HS256 JWT signed with `SESSION_SECRET` (via `jose`); its `sub` is the user's uuid.
+  - `POST /api/auth/google` takes `{ idToken }`, verifies it against `GOOGLE_CLIENT_IDS` with `google-auth-library`, upserts the user, and returns `{ token, user }`. If a user already has that email, Google is linked to their account; when that email was unverified, the old password is dropped and its sessions are revoked, which blocks pre-registration account takeover.
   - `GET /api/auth/me` returns `{ user }`.
   - `GET /api/auth/google/start?returnTo=<app url>` → Google → `GET /api/auth/google/callback` is a server-side authorization-code flow (`google-oauth.service.ts`) for Expo Go, which can't load the native Google SDK. The callback redirects to `returnTo?token=…` or `returnTo?error=…`. The return URL travels in a signed, 10-minute JWT `state`, and must match one of `OAUTH_RETURN_URL_PREFIXES` (`exp://` should only be allowed in development). The flow needs `GOOGLE_WEB_CLIENT_ID`, `GOOGLE_WEB_CLIENT_SECRET` and `PUBLIC_API_URL`, a public HTTPS origin such as an ngrok domain; `<PUBLIC_API_URL>/api/auth/google/callback` must be registered as a redirect URI on the Web client.
   - Phone sign-in (`modules/auth/phone/`): `POST /api/auth/phone/send-code { phone }` returns `{ phone, resendAfterSeconds }`, then `POST /api/auth/phone/verify { phone, code }` returns `{ token, user }`, upserting the user by `phone`. Numbers are normalized to E.164.
     - Codes go through an `OtpProvider` picked by `OTP_PROVIDER`. `console` (development only; `env.ts` refuses it when `NODE_ENV=production`) keeps HMAC-hashed codes in `phone_otp_codes` (5 minutes, 5 attempts, single use) and prints them to the API log. `twilio` uses the Twilio Verify REST API, which stores and checks the codes itself.
     - Sending is rate-limited by the service using `phone_otp_sends`: a 30 s cooldown, 5 codes per number per hour, and 20 per IP per hour. Set `TRUST_PROXY=1` behind ngrok or a load balancer so `request.ip` is the real client.
     - `PublicUser` includes `phone`.
-  - Protect a route with `requireAuth` from `auth.middleware.ts`. The user's ID is then available as `response.locals.userId`, typed through `src/types/express.d.ts`.
+  - **Sessions** (`session.ts`) are rows in `sessions`.
+    - Every sign-in method calls `createSession(userId, method, requestContext(request))`. The token is a 30-day HS256 JWT signed with `SESSION_SECRET` (via `jose`), with `sub` = user uuid and `sid` = session row.
+    - `requireAuth` checks both the JWT and that the row is neither revoked nor expired, so logout, password changes and resets take effect immediately. Tokens issued before sessions existed are rejected.
+    - `POST /auth/logout`, `GET /auth/sessions`, `POST /auth/sessions/revoke-others` and `DELETE /auth/sessions/:id` manage sessions.
+  - **Email + password** (`email-auth.service.ts`):
+    - `POST /auth/signup { name, email, password, acceptTerms }` creates an unverified account and emails a 6-digit code. `POST /auth/email/verify { email, code }` returns `{ token, user }`; `POST /auth/email/resend { email }` sends a new code.
+    - `POST /auth/login { identifier, password }` accepts an email or a phone number. An unverified email gets a fresh code and a 403 with code `email_not_verified`.
+    - `POST /auth/password/forgot { email }` and `POST /auth/password/reset { email, code, password }` reset the password; a reset revokes every session and signs the user in.
+    - `POST /auth/password/change { currentPassword?, newPassword }` requires auth and revokes the user's other sessions. `currentPassword` is optional when the account has no password yet.
+    - `POST /auth/me/email/send-code` and `/me/email/verify` verify an email added from the profile. Changing the email in `PATCH /users/me` clears `email_verified_at`.
+    - Passwords are hashed with scrypt (`password.ts`, self-describing `scrypt$N$r$p$salt$hash`). The policy (8+ characters, a letter and a number, not common, doesn't contain the email) is mirrored in the frontend's `PasswordStrength.tsx`.
+    - Codes live in `email_codes`: HMAC-hashed, 10 minutes, 5 attempts, single use. Forgot/resend respond the same way whether or not the email exists.
+  - **Email delivery** (`email/`) is chosen by `EMAIL_PROVIDER`:
+    - `console` (the default) prints the email with its code to the API log. `env.ts` refuses it when `NODE_ENV=production`.
+    - `smtp` uses `nodemailer` and needs `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` and `SMTP_PASS`; Gmail works with an App Password. `EMAIL_FROM` defaults to the SMTP user.
+    - `resend` sends through Resend's REST API and needs `RESEND_API_KEY` and `EMAIL_FROM` (on a verified domain).
+  - **Development codes**: while email or SMS uses the console provider, the send endpoints also return the code as `devCode`. This covers phone `send-code`, `signup`, `email/resend`, `password/forgot` (only when the account exists), `me/email/send-code`, and the `email_not_verified` 403 from login. The app shows it in `DevCodeBanner` with a "Use code" button, so sign-up and login can be tested without Twilio or an email account. It never happens in production, because console providers are refused there.
+  - **`DEV_MASTER_OTP`** (in `backend/.env`, currently `654321`) is accepted as the code for every phone sign-in and email verification or reset, whichever provider is configured. `env.ts` refuses to start with it when `NODE_ENV=production`. Delete the line to turn it off.
+  - **Rate limits** (`rate-limit.ts`, over `auth_events`):
+    - sign-ups: 10 per IP per hour
+    - failed logins: 8 per identifier and 40 per IP per 15 minutes
+    - code emails: a 30 s cooldown per kind, 5 per address and 20 per IP per hour
+    - wrong codes: 10 per address per hour
+  - Protect a route with `requireAuth` from `auth.middleware.ts`. `response.locals.userId` and `response.locals.sessionId` are then set, typed through `src/types/express.d.ts`.
 - `GET /api/health` returns `{ status: 'ok', service: 'tripivo-api', database: 'ok' | 'unreachable' }`.
 - `POST /api/auth/dev-login` returns `{ token, user }` for the demo account (phone `+910000000000`, `DEMO_PHONE` in `auth.service.ts`). It is only enabled outside production and can be turned off with `DEV_LOGIN=false`. `npm run db:seed` fills that account with trips, chats and notifications.
 - **App endpoints**: every one requires auth except `GET /api/destinations`. Input is read with the helpers in `shared/http/validate.ts`, which throw 400s that name the field.
@@ -87,6 +110,7 @@ There is no test framework in either package yet. Before you call a task done, r
   - Repository functions take an optional `db: Queryable = pool` as their last argument, so they can be combined inside `withTransaction(async (client) => ...)` from `transaction.ts`.
   - `migrator.ts` applies the SQL files in `backend/migrations/` once each, in filename order, each inside a transaction, under an advisory lock, and records them in `schema_migrations`. `npm run db:migrate` (`src/scripts/migrate.ts`) runs them without starting the API.
   - To change the schema, add a new `NNN_name.sql` file; never edit one that has already been applied. `002_core_schema.sql` holds the domain model:
+    - `005_email_password_auth.sql` adds `users.email_verified_at/terms_accepted_at/password_changed_at`, `sessions`, `email_codes` and `auth_events`.
     - `004_app_features.sql` adds:
       - profile fields (`users.username`, `travel_profiles.age/gender/city/profession/travel_styles/completed_at`)
       - trip fields (`cover_image`, `activities`, `join_method`, `audience`, `latitude/longitude`)
@@ -120,7 +144,14 @@ Because the package uses NodeNext ESM, relative imports between backend files mu
 - **Auth** (`src/lib/auth.tsx`, `useAuth()` / `useProfile()`):
   - It restores the stored session, then loads the profile from `GET /users/me`. `profile.completed` decides between setup and the app, and `updateProfile()` PATCHes the API.
   - The last profile is cached under `tripivo.profile` (in `src/lib/storage.ts` / `storage.web.ts`) so the app can start offline. A 401 from any call signs the user out through `setUnauthorizedHandler`.
-  - Only Google and phone OTP sign-in exist. The design's email/password fields became a phone number field, because the API has no password login. Sign-up keeps the name and email as a `draft`, and `signIn` saves it to the profile. Apple shows a "not available yet" message.
+  - **Sign-in options**:
+    - Email + password: `signup` → `verify-email` → setup. Login accepts an email or phone number plus a password, and `forgot-password` resets it.
+    - A texted code: `phone` → `verify`.
+    - Google.
+    - Apple shows a "not available yet" message.
+  - Forms show server errors next to the matching input using `fieldError(error, 'email')` from `api.ts`, and `ApiError` carries the API's `code`.
+  - `(app)/security` changes or adds a password and lists and signs out devices. `(app)/confirm-email` verifies an email added from Edit Profile.
+  - `signOut()` calls `POST /auth/logout` first, so the token really stops working.
   - `EXPO_PUBLIC_BYPASS_LOGIN=true` (in `frontend/.env.local`) is a development flag. With no stored session, the app signs in through `POST /auth/dev-login` as the seeded demo account. After signing out, the login screens show until the next launch.
   - `src/components/auth.tsx` holds the Google/Apple buttons. `googleSignIn.ts` / `.web.ts` / `googleBrowserSignIn.ts` run the Google flows.
 - **Data comes from the API.**

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { Avatar, Button, ErrorText, Field, Header, InterestGrid, Screen, Txt } from '../../components/ui';
 import { interests, PROFILE_INTERESTS } from '../../data/catalog';
+import { fieldError } from '../../lib/api';
 import { useAuth, useProfile } from '../../lib/auth';
 import { errorMessage } from '../../lib/format';
 import { pickAndUploadSquarePhoto } from '../../lib/pickPhoto';
@@ -25,6 +26,7 @@ export default function EditProfileScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<unknown>(null);
 
   async function choosePhoto() {
     setError(null);
@@ -41,9 +43,11 @@ export default function EditProfileScreen() {
 
   async function save() {
     setError(null);
+    setSaveError(null);
     setIsSaving(true);
+    const emailChanged = email.trim().toLowerCase() !== (profile.email ?? '').toLowerCase();
     try {
-      await updateProfile({
+      const updated = await updateProfile({
         picture,
         name: name.trim(),
         username: username.trim().replace(/^@/, ''),
@@ -53,9 +57,11 @@ export default function EditProfileScreen() {
         email: email.trim(),
         interests: selected,
       });
-      router.back();
-    } catch (saveError) {
-      setError(errorMessage(saveError, 'Could not save your profile.'));
+      if (emailChanged && updated.email && !updated.emailVerified) router.replace('/confirm-email');
+      else router.back();
+    } catch (saveFailure) {
+      if (fieldError(saveFailure, 'email') || fieldError(saveFailure, 'username')) setSaveError(saveFailure);
+      else setError(errorMessage(saveFailure, 'Could not save your profile.'));
       setIsSaving(false);
     }
   }
@@ -84,18 +90,45 @@ export default function EditProfileScreen() {
 
       <View style={styles.fields}>
         <Field autoCapitalize="words" label="Full Name" onChangeText={setName} value={name} />
-        <Field autoCapitalize="none" label="Username" onChangeText={setUsername} placeholder="yourname" value={username} />
+        <Field
+          autoCapitalize="none"
+          error={fieldError(saveError, 'username')}
+          label="Username"
+          onChangeText={setUsername}
+          placeholder="yourname"
+          value={username}
+        />
         <Field label="Bio" multiline onChangeText={setBio} placeholder="Love exploring new places..." value={bio} />
         <Field autoCapitalize="words" label="Location" onChangeText={setCity} placeholder="Delhi, India" value={city} />
         <Field autoCapitalize="words" label="Profession" onChangeText={setProfession} value={profession} />
-        <Field
-          autoCapitalize="none"
-          keyboardType="email-address"
-          label="Email"
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          value={email}
-        />
+        <View>
+          <Field
+            autoCapitalize="none"
+            error={fieldError(saveError, 'email')}
+            keyboardType="email-address"
+            label="Email"
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            value={email}
+          />
+          {profile.email && email.trim().toLowerCase() === profile.email.toLowerCase() ? (
+            profile.emailVerified ? (
+              <Txt color="success" style={styles.emailStatus} variant="caption">
+                ✓ Verified
+              </Txt>
+            ) : (
+              <Pressable accessibilityRole="link" onPress={() => router.push('/confirm-email')} style={styles.emailStatus}>
+                <Txt color="danger" variant="caption">
+                  Not verified · <Txt color="primary" variant="caption">Verify now</Txt>
+                </Txt>
+              </Pressable>
+            )
+          ) : email.trim() ? (
+            <Txt color="subtle" style={styles.emailStatus} variant="caption">
+              You’ll need to verify this address after saving.
+            </Txt>
+          ) : null}
+        </View>
         {profile.phone ? <Field editable={false} label="Phone" value={profile.phone} /> : null}
       </View>
 
@@ -128,4 +161,5 @@ const useStyles = makeStyles((c) => ({
   },
   fields: { gap: 14 },
   section: { marginTop: 24, marginBottom: 12 },
+  emailStatus: { marginTop: 6, marginLeft: 4 },
 }));

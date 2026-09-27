@@ -67,6 +67,50 @@ function parseTwilioConfig(provider: OtpProviderName) {
   };
 }
 
+const EMAIL_PROVIDERS = ['console', 'smtp', 'resend'] as const;
+export type EmailProviderName = (typeof EMAIL_PROVIDERS)[number];
+
+function parseEmailConfig(isProduction: boolean) {
+  const provider = optional('EMAIL_PROVIDER') ?? 'console';
+  if (!(EMAIL_PROVIDERS as readonly string[]).includes(provider)) {
+    throw new Error(`EMAIL_PROVIDER must be one of ${EMAIL_PROVIDERS.join(', ')}, got "${provider}".`);
+  }
+  // The console provider logs verification and reset codes: anyone could take over accounts.
+  if (provider === 'console' && isProduction) {
+    throw new Error('EMAIL_PROVIDER=console is for development only. Configure smtp or resend in production.');
+  }
+  const hint = `It is required when EMAIL_PROVIDER=${provider}.`;
+  const smtp =
+    provider === 'smtp'
+      ? {
+          host: required('SMTP_HOST', hint),
+          port: parsePort(optional('SMTP_PORT'), 587),
+          user: required('SMTP_USER', hint),
+          pass: required('SMTP_PASS', hint),
+        }
+      : undefined;
+  return {
+    provider: provider as EmailProviderName,
+    // "Tripivo <no-reply@yourdomain.com>". With Resend the domain must be verified; with SMTP it
+    // defaults to the SMTP account itself (e.g. your Gmail address).
+    from:
+      provider === 'resend'
+        ? required('EMAIL_FROM', hint)
+        : (optional('EMAIL_FROM') ?? (smtp ? `Tripivo <${smtp.user}>` : 'Tripivo <no-reply@tripivo.local>')),
+    resendApiKey: provider === 'resend' ? required('RESEND_API_KEY', hint) : undefined,
+    smtp,
+  };
+}
+
+/** A code accepted for every phone and email verification. Development only. */
+function parseDevMasterOtp(isProduction: boolean): string | null {
+  const value = optional('DEV_MASTER_OTP');
+  if (!value) return null;
+  if (isProduction) throw new Error('DEV_MASTER_OTP lets anyone sign in to any account. Remove it in production.');
+  if (!/^\d{6}$/.test(value)) throw new Error(`DEV_MASTER_OTP must be 6 digits, got "${value}".`);
+  return value;
+}
+
 const isProduction = process.env.NODE_ENV === 'production';
 const otpProvider = parseOtpProvider(isProduction);
 const sessionSecret = process.env.SESSION_SECRET?.trim();
@@ -110,6 +154,8 @@ export const env = {
     : new URL('../../uploads/', import.meta.url),
   // POST /api/auth/dev-login signs in as a demo user without any credentials. Never in production.
   devLoginEnabled: !isProduction && optional('DEV_LOGIN') !== 'false',
+  email: parseEmailConfig(isProduction),
+  devMasterOtp: parseDevMasterOtp(isProduction),
   phoneAuth: {
     provider: otpProvider,
     twilio: parseTwilioConfig(otpProvider),

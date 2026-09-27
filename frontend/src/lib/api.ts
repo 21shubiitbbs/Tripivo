@@ -20,10 +20,21 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Machine-readable reason from the API, e.g. 'email_not_verified'. */
+    readonly code?: string,
+    /** The request field the error is about, for showing it next to that input. */
+    readonly field?: string,
+    /** The whole error body, for endpoints that include extra data (e.g. `devCode`). */
+    readonly body?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/** The API's message for `field`, if `error` is about that field. */
+export function fieldError(error: unknown, field: string): string | undefined {
+  return error instanceof ApiError && error.field === field ? error.message : undefined;
 }
 
 type RequestOptions = {
@@ -60,8 +71,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (response.status === 401 && token && options.token === undefined) onUnauthorized?.();
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new ApiError(response.status, body?.error ?? `Request failed (${response.status})`);
+    const body = (await response.json().catch(() => null)) as { error?: string; code?: string; field?: string } | null;
+    throw new ApiError(
+      response.status,
+      body?.error ?? `Request failed (${response.status})`,
+      body?.code,
+      body?.field,
+      body ?? undefined,
+    );
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -95,6 +112,8 @@ export type SendPhoneCodeResult = {
   /** The number normalized by the API (E.164), to use when verifying. */
   phone: string;
   resendAfterSeconds: number;
+  /** Development only: the code, returned because the API has no SMS provider configured. */
+  devCode?: string;
 };
 
 /** Texts a one-time sign-in code to `phone` (with country code, e.g. "+91 98765 43210"). */
@@ -110,6 +129,86 @@ export function verifyPhoneCode(phone: string, code: string) {
 /** Development only: a session for the API's demo account. */
 export function devLogin() {
   return request<Session>('/auth/dev-login', { method: 'POST', token: null });
+}
+
+/** `devCode` is only set in development, when the API has no email provider and sends nothing. */
+export type PendingVerification = { email: string; resendAfterSeconds: number; devCode?: string };
+
+/** Creates an unverified email account; a 6-digit code is emailed to it. */
+export function signUp(details: { name: string; email: string; password: string; acceptTerms: boolean }) {
+  return request<PendingVerification>('/auth/signup', { method: 'POST', body: details, token: null });
+}
+
+/** Confirms the emailed code and signs the new account in. */
+export function verifyEmail(email: string, code: string) {
+  return request<Session>('/auth/email/verify', { method: 'POST', body: { email, code }, token: null });
+}
+
+export function resendVerificationEmail(email: string) {
+  return request<PendingVerification>('/auth/email/resend', { method: 'POST', body: { email }, token: null });
+}
+
+/**
+ * Signs in with an email (or phone number) and password. Rejects with code
+ * 'email_not_verified' when the email still needs its code (a new one has been sent).
+ */
+export function logIn(identifier: string, password: string) {
+  return request<Session>('/auth/login', { method: 'POST', body: { identifier, password }, token: null });
+}
+
+/** Emails a reset code if the address has an account (the response is the same either way). */
+export function forgotPassword(email: string) {
+  return request<PendingVerification>('/auth/password/forgot', { method: 'POST', body: { email }, token: null });
+}
+
+/** Sets a new password with the emailed code, signing out other devices, and signs in. */
+export function resetPassword(email: string, code: string, password: string) {
+  return request<Session>('/auth/password/reset', { method: 'POST', body: { email, code, password }, token: null });
+}
+
+/** `currentPassword` is only needed if the account already has a password. Signs out other devices. */
+export function changePassword(newPassword: string, currentPassword?: string) {
+  return request<void>('/auth/password/change', { method: 'POST', body: { currentPassword, newPassword } });
+}
+
+/** Emails a code to verify the address on the signed-in user's profile. */
+export function sendOwnVerificationCode() {
+  return request<PendingVerification>('/auth/me/email/send-code', { method: 'POST' });
+}
+
+export function verifyOwnEmail(code: string) {
+  return request<void>('/auth/me/email/verify', { method: 'POST', body: { code } });
+}
+
+/**
+ * Ends the current session on the server. The token is passed explicitly so a 401 here (session
+ * already gone) doesn't trigger the unauthorized handler, which would sign out again.
+ */
+export function logOut() {
+  if (!authToken) return Promise.resolve();
+  return request<void>('/auth/logout', { method: 'POST', token: authToken });
+}
+
+export type DeviceSession = {
+  id: string;
+  method: string;
+  userAgent: string | null;
+  ip: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
+};
+
+export async function getSessions() {
+  return (await request<{ sessions: DeviceSession[] }>('/auth/sessions')).sessions;
+}
+
+export function revokeSession(sessionId: string) {
+  return request<void>(`/auth/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export function revokeOtherSessions() {
+  return request<void>('/auth/sessions/revoke-others', { method: 'POST' });
 }
 
 /** Returns the signed-in user, or null if the session token is no longer valid. */
@@ -152,7 +251,13 @@ export type Profile = {
   stats: { trips: number; rating: number | null; followers: number; following: number };
 };
 
-export type MyProfile = Profile & { email: string | null; phone: string | null };
+export type MyProfile = Profile & {
+  email: string | null;
+  emailVerified: boolean;
+  phone: string | null;
+  /** False for Google and phone accounts that haven't set a password. */
+  hasPassword: boolean;
+};
 export type PublicProfile = Profile & { isMe: boolean; isFollowing: boolean; isBlocked: boolean };
 
 export type ProfileChanges = Partial<{

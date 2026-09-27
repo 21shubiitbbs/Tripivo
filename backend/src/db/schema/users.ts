@@ -12,6 +12,10 @@ export type UserRow = Timestamps & {
   picture: string | null;
   /** Unique, case-insensitive. */
   username: string | null;
+  /** Set once the user proved they own `email`; cleared when the email changes. */
+  email_verified_at: Date | null;
+  terms_accepted_at: Date | null;
+  password_changed_at: Date | null;
   last_login_at: Date;
 };
 

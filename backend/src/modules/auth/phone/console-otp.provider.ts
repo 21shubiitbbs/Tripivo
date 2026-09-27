@@ -22,10 +22,11 @@ function hashCode(phone: string, code: string): string {
  * sending an SMS. env.ts refuses to select it in production.
  */
 export class ConsoleOtpProvider implements OtpProvider {
-  async sendCode(phone: string): Promise<void> {
+  async sendCode(phone: string): Promise<string> {
     const code = randomInt(0, 10 ** OTP_CODE_LENGTH).toString().padStart(OTP_CODE_LENGTH, '0');
     await saveOtpCode(phone, hashCode(phone, code), new Date(Date.now() + CODE_TTL_MS));
     console.log(`[otp:console] Sign-in code for ${phone}: ${code}`);
+    return code;
   }
 
   async checkCode(phone: string, code: string): Promise<OtpCheckResult> {

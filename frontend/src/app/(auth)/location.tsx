@@ -6,7 +6,7 @@ import { MapIllustration } from '../../components/MapIllustration';
 import { Button, Screen, Txt } from '../../components/ui';
 import { makeStyles } from '../../theme';
 
-// 6. Location permission. Either choice continues to login; the answer is remembered by the OS.
+// 6. Location permission (part of Get Started). Either choice continues to sign-up; the answer is remembered by the OS.
 export default function LocationScreen() {
   const styles = useStyles();
   const [isAsking, setIsAsking] = useState(false);
@@ -19,7 +19,7 @@ export default function LocationScreen() {
       // Denied or unavailable (e.g. insecure web origin): the app works without it.
     } finally {
       setIsAsking(false);
-      router.push('/login');
+      router.push('/signup');
     }
   }
 
@@ -28,7 +28,7 @@ export default function LocationScreen() {
       footer={
         <View style={styles.actions}>
           <Button label="Enable Location" loading={isAsking} onPress={enableLocation} />
-          <Button label="Not Now" onPress={() => router.push('/login')} variant="ghost" />
+          <Button label="Not Now" onPress={() => router.push('/signup')} variant="ghost" />
         </View>
       }
     >

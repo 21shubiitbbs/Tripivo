@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
     },
@@ -22,9 +22,24 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-router",
       "expo-status-bar",
       "expo-web-browser",
-      "expo-secure-store"
-    ]
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Tripivo uses your location to show trips and travelers near you."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Tripivo needs your photos so you can pick a profile picture.",
+          "cameraPermission": "Tripivo uses the camera so you can take a profile picture."
+        }
+      ]
+    ],
+    "scheme": "tripivo"
   }
 }

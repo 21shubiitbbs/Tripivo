@@ -875,7 +875,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 // ---------------------------------------------------------------------------------------------
 
 // react-native-web draws the browser's focus ring around inputs; the field borders replace it.
-const noWebOutline = Platform.OS === 'web' ? ({ outlineWidth: 0 } as object) : {};
+const noWebOutline = Platform.OS === 'web' ? ({ outlineWidth: 0, outlineStyle: 'none' } as object) : {};
 
 const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },

@@ -22,6 +22,8 @@ npm run dev        # tsx watch src/server.ts, port 4000 (override with PORT)
 npm run build      # tsc -> dist/
 npm start          # node dist/server.js (build first)
 npm run typecheck
+npm run db:migrate # apply migrations without starting the API
+npm run db:seed    # sample travelers, trips, chats + the demo account; `-- +91XXXXXXXXXX` also enrolls your own number
 ```
 
 Frontend (`cd frontend`):
@@ -55,12 +57,43 @@ There is no test framework in either package yet. Before you call a task done, r
     - Sending is rate-limited by the service using `phone_otp_sends`: a 30 s cooldown, 5 codes per number per hour, and 20 per IP per hour. Set `TRUST_PROXY=1` behind ngrok or a load balancer so `request.ip` is the real client.
     - `PublicUser` includes `phone`.
   - Protect a route with `requireAuth` from `auth.middleware.ts`. The user's ID is then available as `response.locals.userId`, typed through `src/types/express.d.ts`.
-- `GET /api/health` returns `{ status: 'ok', service: 'tripivo-api', database: 'ok' | 'unreachable' }`. `GET /api/trips` is a stub that returns `{ trips: [] }`.
+- `GET /api/health` returns `{ status: 'ok', service: 'tripivo-api', database: 'ok' | 'unreachable' }`.
+- `POST /api/auth/dev-login` returns `{ token, user }` for the demo account (phone `+910000000000`, `DEMO_PHONE` in `auth.service.ts`). It is only enabled outside production and can be turned off with `DEV_LOGIN=false`. `npm run db:seed` fills that account with trips, chats and notifications.
+- **App endpoints**: every one requires auth except `GET /api/destinations`. Input is read with the helpers in `shared/http/validate.ts`, which throw 400s that name the field.
+  - `users/`:
+    - `GET|PATCH /api/users/me` reads and updates the profile (plus `stats`). `completed: true` finishes setup.
+    - `GET /api/users/:id` returns a public profile with `isFollowing`/`isBlocked`.
+    - `POST|DELETE /api/users/:id/follow` and `/block` follow or block a user.
+    - `GET /api/users/me/blocked` and `/me/contacts` list blocked users and the people you share a room with.
+  - `destinations/`: `GET /api/destinations` returns the catalog seeded by migration 004.
+  - `trips/`:
+    - `GET /api/trips` searches with query params `q`, `category`, `activities`, `groupSize`, `budget` (`under5k|5k-10k|10k-20k|20k+`), `from`, `to`, `lat`, `lng`, `radiusKm`, `saved`. `GET /api/trips/mine` returns trips where you have a `membership`. `POST /api/trips` creates a trip.
+    - `GET /api/trips/:id` returns the detail: itinerary, travelers, reviews, `ratingDistribution`, `chatRoomId`, `canReview` and `pendingRequestCount`.
+    - `PUT /:id/itinerary` (host only) replaces the whole itinerary.
+    - `POST|DELETE /:id/save` saves or unsaves a trip.
+    - `POST /:id/join` joins directly when the trip is `join_method = 'open'`, otherwise creates a join request. `DELETE /:id/membership` leaves the trip or withdraws the request.
+    - `GET /:id/requests` and `POST /:id/requests/:requestId/accept|reject` are for the host.
+    - `POST /:id/reviews` is for members once the trip has ended.
+  - `chats/`:
+    - `GET /api/chats` lists rooms with last message and unread count. `POST /api/chats/direct { userId }` finds or creates a direct chat.
+    - `GET /api/chats/:id` returns the room and its latest 100 messages, and marks the room read.
+    - `POST /:id/messages` sends a message; `POST /:id/polls` creates a poll and `POST /:id/polls/:pollId/vote` votes. These routes respond with the room's messages.
+  - `notifications/`: `GET /api/notifications?kind=` returns `{ notifications, unread }`; `POST /read-all` marks everything read. Trip and chat services create notifications for join requests and decisions, new members and messages (at most one unread per room).
+  - `reports/`: `POST /api/reports { targetType, targetId?, details }`.
+  - `uploads/`: `POST /api/uploads { data: base64, contentType }` returns `{ url }`. It is mounted before the global `express.json()` because it needs an 8 MB body limit. Files are written to `UPLOAD_DIR` (default `backend/uploads/`, gitignored) and served from `/uploads`. That only works with a single server, so switch to object storage before scaling out.
+- **Trip model**: creating a trip, in `insertTrip`, also creates its `groups` row, its group `chat_rooms` row and the creator's admin membership. Being a member means an active `group_members` row plus a `chat_room_members` row. `addMember` and `removeMember` handle both and flip `trips.status` between `open` and `full`. `phase` (`upcoming`/`active`/`completed`) is computed from the dates. Search hides trips whose host has blocked the viewer, or whom the viewer blocked.
 - **Database** (`db/`): PostgreSQL through `pg`, with no ORM.
   - `pool.ts` exports the shared `pool`, `Queryable` (pool or transaction client) and `checkDatabase()`.
   - Repository functions take an optional `db: Queryable = pool` as their last argument, so they can be combined inside `withTransaction(async (client) => ...)` from `transaction.ts`.
   - `migrator.ts` applies the SQL files in `backend/migrations/` once each, in filename order, each inside a transaction, under an advisory lock, and records them in `schema_migrations`. `npm run db:migrate` (`src/scripts/migrate.ts`) runs them without starting the API.
   - To change the schema, add a new `NNN_name.sql` file; never edit one that has already been applied. `002_core_schema.sql` holds the domain model:
+    - `004_app_features.sql` adds:
+      - profile fields (`users.username`, `travel_profiles.age/gender/city/profession/travel_styles/completed_at`)
+      - trip fields (`cover_image`, `activities`, `join_method`, `audience`, `latitude/longitude`)
+      - `destinations`, `saved_trips`
+      - direct chats (`chat_rooms.kind`, nullable `group_id`) and `chat_room_members` (with `last_read_at`)
+      - polls (`chat_polls` / `chat_poll_options` / `chat_poll_votes`, posted as a `poll` message)
+      - `notifications`, `user_follows`, `user_blocks`, `reports`
     - users → travel_profiles → trip_preferences (1:1 each)
     - trips → join_requests, itinerary_days, expenses, trip_photos, trip_reviews
     - trips → groups → group_members, chat_rooms → chat_messages, and group_expenses → group_expense_splits
@@ -82,17 +115,24 @@ Because the package uses NodeNext ESM, relative imports between backend files mu
 - **Route groups and guards.** `src/app/_layout.tsx` wraps the app in `ThemeProvider` → `AuthProvider` → `AppDataProvider`, then renders a `Stack` with three `Stack.Protected` groups:
   - `(auth)`: welcome/splash, onboarding, location permission, login, sign-up, OTP `verify`. Shown when signed out.
   - `(setup)`: profile photo → about → interests. Shown when signed in but `profile.completed` is false.
-  - `(app)`: `(tabs)` (Home, Trips, a "+" button that opens `/create`, Messages, Profile), plus search, filters (modal), results, `trip/[id]` (+ itinerary, travelers, reviews, join), the create-trip wizard, `chat/[id]`, notifications, edit-profile, settings, safety and map.
+  - `(app)`: `(tabs)` (Home, Trips, a "+" button that opens `/create`, Messages, Profile), plus search, filters (modal), results, `trip/[id]` (+ itinerary, travelers, reviews, join, requests), the create-trip wizard, `chat/[id]`, `user/[id]`, notifications, edit-profile, settings, safety and map.
   - The navigator isn't mounted until the stored session has been checked; mounting it earlier drops the URL the app was opened with. `auth/google` is an unguarded route that catches the Google browser-flow redirect.
-- **Auth** (`src/lib/auth.tsx`, `useAuth()`): restores the session (checked again with `/auth/me`) and keeps the traveler `Profile` under `tripivo.profile` in `src/lib/storage.ts` (`expo-secure-store`) or `storage.web.ts` (`localStorage`). A profile is tied to a user id; if there's no match on sign-in, the user goes through setup again.
-  - Only Google and phone OTP are real. The design's email/password fields became a phone number field, because the API has no password login. Sign-up keeps the name and email as a `draft` until the code is verified.
-  - `EXPO_PUBLIC_BYPASS_LOGIN=true` (in `frontend/.env.local`) is a development flag: with no stored session, the app skips login and setup and opens as a demo traveler (`session: null`). Signing out still shows the login screens until the next launch.
-  - `src/components/auth.tsx` holds the Google/Apple buttons. `googleSignIn.ts` / `.web.ts` / `googleBrowserSignIn.ts` work as before; Apple still signs in with `session: null`.
-- **Everything except auth is sample data.** Trips, travelers, chats, notifications and reviews live in `src/data/mock.ts` (Unsplash and randomuser.me image URLs), and `src/lib/appData.tsx` (`useAppData()`) keeps them in memory: saved trips, joining, publishing, chat messages, poll votes and search filters. Nothing is sent to the backend, and it all resets on restart. Profile edits are stored on the device only. Replace these pieces with calls in `src/lib/api.ts` as endpoints appear.
+- **Auth** (`src/lib/auth.tsx`, `useAuth()` / `useProfile()`):
+  - It restores the stored session, then loads the profile from `GET /users/me`. `profile.completed` decides between setup and the app, and `updateProfile()` PATCHes the API.
+  - The last profile is cached under `tripivo.profile` (in `src/lib/storage.ts` / `storage.web.ts`) so the app can start offline. A 401 from any call signs the user out through `setUnauthorizedHandler`.
+  - Only Google and phone OTP sign-in exist. The design's email/password fields became a phone number field, because the API has no password login. Sign-up keeps the name and email as a `draft`, and `signIn` saves it to the profile. Apple shows a "not available yet" message.
+  - `EXPO_PUBLIC_BYPASS_LOGIN=true` (in `frontend/.env.local`) is a development flag. With no stored session, the app signs in through `POST /auth/dev-login` as the seeded demo account. After signing out, the login screens show until the next launch.
+  - `src/components/auth.tsx` holds the Google/Apple buttons. `googleSignIn.ts` / `.web.ts` / `googleBrowserSignIn.ts` run the Google flows.
+- **Data comes from the API.**
+  - Screens load data with `useQuery(key, fetcher, { pollMs? })` from `src/lib/useQuery.ts`. It refetches when the screen gains focus and when `key` changes. Screens show `LoadingState`/`ErrorState` from the UI kit, and mutations call `api.ts` and then `reload()`.
+  - Chat polls every 4 s and the Messages tab every 10 s. There are no websockets yet.
+  - `src/lib/appData.tsx` holds only client-side UI state: the search filters and recent searches, saved on the device.
+  - `src/data/catalog.ts` has the fixed lists (interests, group sizes, budget keys) and the onboarding photos.
+  - Photos are picked with `pickAndUploadSquarePhoto()` (base64 → `POST /uploads`).
 - **Theme** (`src/theme.tsx`): light and dark palettes (primary blue `#1D6AE5`). The preference (system/light/dark, set in Settings) is saved under `tripivo.theme`. Build styles with `const useStyles = makeStyles((c) => ({...}))` rather than `StyleSheet.create` with hard-coded colors, so dark mode keeps working. Content is capped at `MAX_CONTENT_WIDTH` (560).
-- **UI kit** (`src/components/ui.tsx`): `Screen` (safe area, scroll, pinned `header`/`footer`), `Header`, `Txt`, `Button`, `Field`, `SearchBar`, `Chip`/`ChipRow`, `SegmentTabs`, `UnderlineTabs`, `RadioOption`, `InterestGrid`, `StepProgress`, `Avatar`, `ListRow` and others. Trip cards are in `trips.tsx`, and itinerary/travelers/reviews sections in `tripSections.tsx`. `Calendar.tsx` is a dependency-free date picker. The map view is an SVG illustration (`MapIllustration.tsx`), not a real map.
-- Device APIs: `expo-location` (permission prompt only) and `expo-image-picker` (profile photo). Both have permission strings in `app.json`. The deep-link scheme is `tripivo`.
-- **API access** goes through `src/lib/api.ts`. The base URL comes from `EXPO_PUBLIC_API_URL`, falling back to `http://localhost:4000/api`. Settings shows the `getApiHealth()` status.
+- **UI kit** (`src/components/ui.tsx`): `Screen` (safe area, scroll, pinned `header`/`footer`), `Header`, `Txt`, `Button`, `Field`, `SearchBar`, `Chip`/`ChipRow`, `SegmentTabs`, `UnderlineTabs`, `RadioOption`, `InterestGrid`, `StepProgress`, `Avatar`, `ListRow` and others. Trip cards are in `trips.tsx`, and itinerary/travelers/reviews sections in `tripSections.tsx`. `Calendar.tsx` is a dependency-free date picker. The map view draws the real trip coordinates (and the device location, via `expo-location`) onto an SVG illustration (`MapIllustration.tsx`); it isn't a tiled map.
+- Device APIs: `expo-location` (the permission prompt, and the position used by the map) and `expo-image-picker` (profile photo). Both have permission strings in `app.json`. The deep-link scheme is `tripivo`.
+- **API access** goes through `src/lib/api.ts`, which has a typed function per endpoint and adds the session token itself (`setAuthToken`). Errors are `ApiError`s carrying the server's `{ error }` message, with status 0 when the API is unreachable. The base URL comes from `EXPO_PUBLIC_API_URL`, falling back to `http://localhost:4000/api`. Settings shows the `getApiHealth()` status. Routes added for the backend: `user/[id]` (traveler profile: follow, message, block) and `trip/[id]/requests` (host). The itinerary screen has a host edit mode.
 - Native Google sign-in only runs in a development or store build. The native module is `require`d lazily so that Expo Go doesn't crash at startup. Its config plugin is added in `app.config.ts`, and only when `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is set, because the plugin fails prebuild without an `iosUrlScheme`.
 - On web, `ImageBackground` needs an explicit `width`/`height: '100%'`. Without it, react-native-web draws the image at its native pixel size and the screen shows only its top-left corner.
 

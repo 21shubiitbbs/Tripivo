@@ -46,6 +46,29 @@ type Auth = {
 
 const PROFILE_KEY = 'tripivo.profile';
 
+/**
+ * Development shortcut: with EXPO_PUBLIC_BYPASS_LOGIN=true, launching without a stored session
+ * skips login and profile setup and opens the app as a demo traveler (no backend account, so
+ * `session` is null). Inlined at bundle time; restart Expo after changing it.
+ */
+export const BYPASS_LOGIN = process.env.EXPO_PUBLIC_BYPASS_LOGIN === 'true';
+
+const demoProfile: Profile = {
+  name: 'Demo Traveler',
+  username: 'demo',
+  photo: null,
+  age: '',
+  gender: '',
+  city: 'Delhi, India',
+  profession: '',
+  bio: '',
+  email: '',
+  travelStyles: [],
+  interests: ['trekking', 'beaches', 'photography'],
+  completed: true,
+  userId: null,
+};
+
 const emptyProfile: Profile = {
   name: '',
   username: '',
@@ -109,6 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (restored) {
         setSession(restored);
         if (storedProfile?.userId === restored.user.id) setProfile(storedProfile);
+        setStatus('signedIn');
+      } else if (BYPASS_LOGIN) {
+        setProfile(storedProfile?.userId === null && storedProfile.completed ? storedProfile : demoProfile);
         setStatus('signedIn');
       } else {
         setStatus('signedOut');

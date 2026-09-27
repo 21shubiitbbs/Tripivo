@@ -4,11 +4,18 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { DestinationTile } from '../../components/trips';
 import { BackButton, ChipRow, Screen, SearchBar, SectionTitle, Txt } from '../../components/ui';
-import { destinations, TRENDING_DESTINATIONS } from '../../data/mock';
+import { getDestinations, type TripCategory } from '../../lib/api';
 import { useAppData } from '../../lib/appData';
+import { useQuery } from '../../lib/useQuery';
 import { makeStyles, useTheme } from '../../theme';
 
-const CATEGORIES = ['All', 'Trekking', 'Beaches', 'Budget', 'Weekend'];
+const CATEGORIES: { label: string; key: TripCategory | null }[] = [
+  { label: 'All', key: null },
+  { label: 'Trekking', key: 'trekking' },
+  { label: 'Beaches', key: 'beaches' },
+  { label: 'Budget', key: 'budget' },
+  { label: 'Weekend', key: 'weekend' },
+];
 
 // 14. Search.
 export default function SearchScreen() {
@@ -17,6 +24,8 @@ export default function SearchScreen() {
   const { recentSearches, addRecentSearch } = useAppData();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All');
+  const destinations = useQuery('destinations', getDestinations).data ?? [];
+  const trending = destinations.filter((d) => d.trending).slice(0, 4);
   const needle = query.trim().toLowerCase();
   const suggestions = needle
     ? destinations.filter((d) => d.name.toLowerCase().includes(needle) || d.tags.toLowerCase().includes(needle))
@@ -25,7 +34,8 @@ export default function SearchScreen() {
   function search(term: string) {
     const clean = term.trim();
     if (clean) addRecentSearch(clean);
-    router.push({ pathname: '/results', params: { q: clean, category } });
+    const categoryKey = CATEGORIES.find((c) => c.label === category)?.key ?? '';
+    router.push({ pathname: '/results', params: { q: clean, category: categoryKey } });
   }
 
   return (
@@ -49,7 +59,7 @@ export default function SearchScreen() {
         </View>
       }
     >
-      <ChipRow onChange={setCategory} options={CATEGORIES} value={category} />
+      <ChipRow onChange={setCategory} options={CATEGORIES.map((c) => c.label)} value={category} />
 
       {needle ? (
         <View style={styles.section}>
@@ -60,22 +70,18 @@ export default function SearchScreen() {
         </View>
       ) : (
         <>
-          <SectionTitle title="Recent Searches" />
+          {recentSearches.length ? <SectionTitle title="Recent Searches" /> : null}
           {recentSearches.map((term) => (
             <SearchRow icon="time-outline" key={term} label={term} onPress={() => search(term)} />
           ))}
 
           <SectionTitle title="Trending Now" />
           <View style={styles.grid}>
-            {TRENDING_DESTINATIONS.map((id) => {
-              const d = destinations.find((item) => item.id === id);
-              if (!d) return null;
-              return (
-                <View key={d.id} style={styles.gridCell}>
-                  <DestinationTile height={110} image={d.image} name={d.name} onPress={() => search(d.name)} width="100%" />
-                </View>
-              );
-            })}
+            {trending.map((d) => (
+              <View key={d.id} style={styles.gridCell}>
+                <DestinationTile height={110} image={d.image} name={d.name} onPress={() => search(d.name)} width="100%" />
+              </View>
+            ))}
           </View>
         </>
       )}

@@ -2,34 +2,34 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 import { TripListCard } from '../../components/trips';
-import { EmptyState, Header, IconButton, Screen } from '../../components/ui';
-import type { Trip } from '../../data/mock';
-import { useAppData, type SearchFilters } from '../../lib/appData';
+import { EmptyState, ErrorState, Header, IconButton, LoadingState, Screen } from '../../components/ui';
+import { searchTrips, type TripCategory, type TripQuery } from '../../lib/api';
+import { useAppData } from '../../lib/appData';
+import { useQuery } from '../../lib/useQuery';
 import { makeStyles, useTheme } from '../../theme';
 
-function matches(trip: Trip, query: string, category: string | undefined, filters: SearchFilters) {
-  const needle = query.toLowerCase();
-  if (needle && !`${trip.title} ${trip.destination}`.toLowerCase().includes(needle)) return false;
-  if (category === 'Trekking' && !trip.activities.includes('trekking')) return false;
-  if (category === 'Beaches' && !trip.activities.includes('beaches')) return false;
-  if (category === 'Budget' && trip.pricePerPerson > 8000) return false;
-  if (category === 'Weekend' && trip.nights > 3) return false;
-  if (filters.groupSize && trip.groupSize !== filters.groupSize) return false;
-  if (filters.budget && trip.budgetLabel !== filters.budget) return false;
-  if (filters.interests.length && !filters.interests.some((key) => trip.activities.includes(key as Trip['activities'][number]))) {
-    return false;
-  }
-  return true;
-}
+const CATEGORIES: TripCategory[] = ['trekking', 'beaches', 'nightlife', 'budget', 'weekend'];
 
-// 16. Search results.
+// 16. Search results. Combines the search text and category with the Filters screen.
 export default function SearchResultsScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { q, category } = useLocalSearchParams<{ q?: string; category?: string }>();
-  const { trips, filters } = useAppData();
-  const query = (q ?? '').trim();
-  const results = trips.filter((trip) => matches(trip, query, category, filters));
+  const params = useLocalSearchParams<{ q?: string; category?: string; saved?: string }>();
+  const { filters } = useAppData();
+  const saved = params.saved === 'true';
+
+  const query: TripQuery = {
+    q: (params.q ?? '').trim() || filters.destination.trim() || undefined,
+    category: CATEGORIES.find((c) => c === params.category),
+    activities: filters.interests,
+    groupSize: filters.groupSize,
+    budget: filters.budget,
+    from: filters.from || undefined,
+    to: filters.to || undefined,
+    saved: saved || undefined,
+  };
+  const trips = useQuery(`results-${JSON.stringify(query)}`, () => searchTrips(query));
+  const title = saved ? 'Saved trips' : query.q || 'All trips';
 
   return (
     <Screen
@@ -49,17 +49,21 @@ export default function SearchResultsScreen() {
               />
             </>
           }
-          subtitle={`(${results.length} trips)`}
-          title={query || 'All trips'}
+          subtitle={trips.data ? `(${trips.data.length} trips)` : undefined}
+          title={title}
         />
       }
     >
       <View style={styles.list}>
-        {results.map((trip) => (
-          <TripListCard key={trip.id} trip={trip} />
-        ))}
-        {results.length === 0 ? (
-          <EmptyState icon="map-search-outline" message="Try another place or loosen your filters." title="No trips found" />
+        {trips.loading ? <LoadingState /> : null}
+        {trips.error && !trips.data ? <ErrorState message={trips.error} onRetry={trips.reload} /> : null}
+        {trips.data?.map((trip) => <TripListCard key={trip.id} trip={trip} />)}
+        {trips.data?.length === 0 ? (
+          <EmptyState
+            icon={saved ? 'heart-outline' : 'map-search-outline'}
+            message={saved ? 'Tap the heart on a trip to save it for later.' : 'Try another place or loosen your filters.'}
+            title={saved ? 'No saved trips' : 'No trips found'}
+          />
         ) : null}
       </View>
     </Screen>

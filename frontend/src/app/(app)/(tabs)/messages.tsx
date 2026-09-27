@@ -2,19 +2,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { Avatar, EmptyState, Screen, SearchBar, Txt } from '../../../components/ui';
-import { useAppData } from '../../../lib/appData';
-import { makeStyles, useTheme } from '../../../theme';
+import { Avatar, EmptyState, ErrorState, LoadingState, Screen, SearchBar, Txt } from '../../../components/ui';
+import { getChats, type ChatSummary } from '../../../lib/api';
+import { useProfile } from '../../../lib/auth';
+import { chatTime } from '../../../lib/format';
+import { useQuery } from '../../../lib/useQuery';
+import { makeStyles } from '../../../theme';
 
-// 32. Messages.
+function preview(chat: ChatSummary, myId: string) {
+  const last = chat.lastMessage;
+  if (!last?.body) return chat.kind === 'group' ? 'Say hi to your travel group 👋' : 'Start the conversation';
+  if (last.type === 'system') return last.body;
+  if (last.senderId === myId) return `You: ${last.body}`;
+  if (chat.kind === 'group' && last.senderName) return `${last.senderName.split(' ')[0]}: ${last.body}`;
+  return last.body;
+}
+
+// 32. Messages. Refreshes every 10 seconds while open.
 export default function MessagesScreen() {
   const styles = useStyles();
-  const { colors } = useTheme();
-  const { chats } = useAppData();
+  const profile = useProfile();
+  const chats = useQuery('chats', getChats, { pollMs: 10_000 });
   const [query, setQuery] = useState('');
   const needle = query.trim().toLowerCase();
-  const visible = chats.filter(
-    (room) => !needle || room.name.toLowerCase().includes(needle) || room.lastMessage.toLowerCase().includes(needle),
+  const visible = (chats.data ?? []).filter(
+    (chat) => !needle || chat.name.toLowerCase().includes(needle) || preview(chat, profile.id).toLowerCase().includes(needle),
   );
 
   return (
@@ -25,40 +37,47 @@ export default function MessagesScreen() {
       <SearchBar
         onChangeText={setQuery}
         placeholder="Search conversations..."
-        right={<Ionicons color={colors.textMuted} name="mic-outline" size={20} />}
         value={query}
       />
 
       <View style={styles.list}>
-        {visible.map((room) => (
+        {chats.loading ? <LoadingState /> : null}
+        {chats.error && !chats.data ? <ErrorState message={chats.error} onRetry={chats.reload} /> : null}
+        {visible.map((chat) => (
           <Pressable
             accessibilityRole="button"
-            key={room.id}
-            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: room.id } })}
+            key={chat.id}
+            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: chat.id } })}
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}
           >
             <View>
-              <Avatar size={52} uri={room.avatar} />
-              {room.isGroup ? <View style={styles.online} /> : null}
+              <Avatar name={chat.name} size={52} uri={chat.avatar} />
+              {chat.kind === 'group' ? (
+                <View style={styles.groupBadge}>
+                  <Ionicons color="#FFFFFF" name="people" size={9} />
+                </View>
+              ) : null}
             </View>
             <View style={styles.body}>
               <View style={styles.line}>
                 <Txt numberOfLines={1} style={styles.name} variant="bodyStrong">
-                  {room.name}
-                  {room.isGroup ? ` (${room.memberCount})` : ''}
+                  {chat.name}
+                  {chat.kind === 'group' ? ` (${chat.memberCount})` : ''}
                 </Txt>
-                <Txt color={room.unread ? 'primary' : 'subtle'} variant="caption">
-                  {room.lastTime}
-                </Txt>
+                {chat.lastMessage ? (
+                  <Txt color={chat.unread ? 'primary' : 'subtle'} variant="caption">
+                    {chatTime(chat.lastMessage.createdAt)}
+                  </Txt>
+                ) : null}
               </View>
               <View style={styles.line}>
                 <Txt color="muted" numberOfLines={1} style={styles.name} variant="caption">
-                  {room.lastMessage}
+                  {preview(chat, profile.id)}
                 </Txt>
-                {room.unread ? (
+                {chat.unread ? (
                   <View style={styles.badge}>
                     <Txt color="inverse" style={styles.badgeText} variant="caption">
-                      {room.unread}
+                      {chat.unread}
                     </Txt>
                   </View>
                 ) : null}
@@ -66,8 +85,12 @@ export default function MessagesScreen() {
             </View>
           </Pressable>
         ))}
-        {visible.length === 0 ? (
-          <EmptyState icon="message-text-outline" message="Try a different name." title="No conversations found" />
+        {chats.data && visible.length === 0 ? (
+          <EmptyState
+            icon="message-text-outline"
+            message={needle ? 'Try a different name.' : 'Join a trip to chat with its group, or message a traveler from their profile.'}
+            title={needle ? 'No conversations found' : 'No conversations yet'}
+          />
         ) : null}
       </View>
     </Screen>
@@ -86,13 +109,15 @@ const useStyles = makeStyles((c) => ({
     borderBottomColor: c.border,
   },
   pressed: { opacity: 0.8 },
-  online: {
+  groupBadge: {
     position: 'absolute',
-    right: 0,
-    bottom: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    right: -2,
+    bottom: 0,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
     borderColor: c.background,
     backgroundColor: c.success,

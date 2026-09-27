@@ -1,15 +1,25 @@
 import type { PhoneOtpCodeRow, PhoneOtpSendRow } from './auth.js';
-import type { ChatMessageRow, ChatRoomRow } from './chat.js';
+import type {
+  ChatMessageRow,
+  ChatPollOptionRow,
+  ChatPollRow,
+  ChatPollVoteRow,
+  ChatRoomMemberRow,
+  ChatRoomRow,
+} from './chat.js';
 import type {
   GroupExpenseRow,
   GroupExpenseSplitRow,
   GroupMemberRow,
   GroupRow,
 } from './groups.js';
+import type { NotificationRow, ReportRow, UserBlockRow, UserFollowRow } from './social.js';
 import type {
+  DestinationRow,
   ExpenseRow,
   ItineraryDayRow,
   JoinRequestRow,
+  SavedTripRow,
   TripPhotoRow,
   TripReviewRow,
   TripRow,
@@ -21,6 +31,7 @@ export * from './chat.js';
 export * from './common.js';
 export * from './enums.js';
 export * from './groups.js';
+export * from './social.js';
 export * from './trips.js';
 export * from './users.js';
 
@@ -43,6 +54,16 @@ export type Tables = {
   group_expense_splits: GroupExpenseSplitRow;
   phone_otp_codes: PhoneOtpCodeRow;
   phone_otp_sends: PhoneOtpSendRow;
+  destinations: DestinationRow;
+  saved_trips: SavedTripRow;
+  chat_room_members: ChatRoomMemberRow;
+  chat_polls: ChatPollRow;
+  chat_poll_options: ChatPollOptionRow;
+  chat_poll_votes: ChatPollVoteRow;
+  notifications: NotificationRow;
+  user_follows: UserFollowRow;
+  user_blocks: UserBlockRow;
+  reports: ReportRow;
 };
 
 export type TableName = keyof Tables;

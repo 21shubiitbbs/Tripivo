@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import type { Interest } from '../data/mock';
+import type { Interest } from '../data/catalog';
 import { makeStyles, MAX_CONTENT_WIDTH, useTheme } from '../theme';
 
 export type IoniconName = ComponentProps<typeof Ionicons>['name'];
@@ -844,8 +844,32 @@ export function ErrorText({ children }: { children: ReactNode }) {
   );
 }
 
-export function formatPrice(amount: number) {
-  return `₹${amount.toLocaleString('en-IN')}`;
+export function LoadingState() {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <View style={styles.loading}>
+      <ActivityIndicator color={colors.primary} size="large" />
+    </View>
+  );
+}
+
+/** A failed load, with a retry button. */
+export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <View style={styles.empty}>
+      <MaterialCommunityIcons color={colors.textSubtle} name="cloud-alert-outline" size={40} />
+      <Txt center variant="h3">
+        Couldn’t load this
+      </Txt>
+      <Txt center color="muted">
+        {message}
+      </Txt>
+      {onRetry ? <Button compact label="Try again" onPress={onRetry} style={styles.retry} variant="soft" /> : null}
+    </View>
+  );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1087,6 +1111,8 @@ const useStyles = makeStyles((c) => ({
     backgroundColor: c.surfaceAlt,
   },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 40, paddingHorizontal: 20 },
+  loading: { paddingVertical: 60, alignItems: 'center', justifyContent: 'center' },
+  retry: { marginTop: 8 },
   stars: { flexDirection: 'row', gap: 2 },
   error: {
     marginTop: 14,

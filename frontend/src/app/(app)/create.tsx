@@ -12,10 +12,12 @@ import {
 import {
   Button,
   Card,
-  ChipRow,
+  Chip,
+  ErrorText,
   Field,
   Header,
   InterestGrid,
+  LoadingState,
   MetaRow,
   RadioOption,
   Screen,
@@ -23,34 +25,17 @@ import {
   StepProgress,
   Txt,
 } from '../../components/ui';
-import {
-  BUDGETS,
-  destinations,
-  GROUP_SIZES,
-  interests,
-  TRIP_ACTIVITIES,
-  type Destination,
-  type InterestKey,
-  type JoinMethod,
-  type Trip,
-} from '../../data/mock';
-import { useAppData } from '../../lib/appData';
-import { useAuth } from '../../lib/auth';
+import { BUDGETS, GROUP_SIZES, interests, isInterestKey, TRIP_ACTIVITIES } from '../../data/catalog';
+import { createTrip, getDestinations, type BudgetKey, type Destination, type GroupSizeKey, type JoinMethod } from '../../lib/api';
+import { useProfile } from '../../lib/auth';
+import { errorMessage } from '../../lib/format';
+import { useQuery } from '../../lib/useQuery';
 import { makeStyles, useTheme } from '../../theme';
 
 // 22–28. Create trip: destination, dates, group & budget, activities, details, preview, publish.
 
 const FORM_STEPS = 6;
 const PUBLISH_STEP = 7;
-
-const PRICE_FOR_BUDGET: Record<string, number> = {
-  'Under ₹5K': 4500,
-  '₹5K - ₹10K': 8000,
-  '₹10K - ₹20K': 15000,
-  '₹20K+': 25000,
-};
-
-const SPOTS_FOR_SIZE: Record<string, number> = { '2-4': 4, '5-8': 8, '9-12': 12, '12+': 16 };
 
 function addDays(iso: string, days: number) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -59,8 +44,8 @@ function addDays(iso: string, days: number) {
 
 export default function CreateTripScreen() {
   const styles = useStyles();
-  const { publishTrip } = useAppData();
-  const { profile, session } = useAuth();
+  const profile = useProfile();
+  const catalog = useQuery('destinations', getDestinations);
   const today = toIsoDate(new Date());
 
   const [step, setStep] = useState(1);
@@ -69,13 +54,17 @@ export default function CreateTripScreen() {
   const [startDate, setStartDate] = useState(addDays(today, 14));
   const [endDate, setEndDate] = useState(addDays(today, 17));
   const [editingDate, setEditingDate] = useState<'start' | 'end' | null>(null);
-  const [groupSize, setGroupSize] = useState('5-8');
-  const [budget, setBudget] = useState('₹5K - ₹10K');
-  const [activities, setActivities] = useState<InterestKey[]>([]);
+  const [groupSize, setGroupSize] = useState<GroupSizeKey>('5-8');
+  const [budget, setBudget] = useState<BudgetKey>('5k-10k');
+  const [activities, setActivities] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [audience, setAudience] = useState('');
   const [joinMethod, setJoinMethod] = useState<JoinMethod>('open');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const budgetLabel = BUDGETS.find((b) => b.key === budget)?.label ?? '';
+  const groupLabel = GROUP_SIZES.find((g) => g.key === groupSize)?.label ?? '';
 
   const nights = Math.max(0, nightsBetween(startDate, endDate));
   const tripTitle = title.trim() || (destination ? `${destination.name} Getaway` : 'My Trip');
@@ -93,43 +82,35 @@ export default function CreateTripScreen() {
     else setStep(step - 1);
   }
 
-  function publish() {
+  async function publish() {
     if (!destination) return;
-    const trip: Trip = {
-      id: `trip-${Date.now()}`,
-      title: tripTitle,
-      destination: destination.name,
-      image: destination.image,
-      startDate,
-      endDate,
-      dateLabel: `${formatShortDate(startDate)} - ${formatShortDate(endDate)}`,
-      nights,
-      spots: SPOTS_FOR_SIZE[groupSize] ?? 8,
-      joined: 1,
-      groupSize,
-      pricePerPerson: PRICE_FOR_BUDGET[budget] ?? 8000,
-      budgetLabel: budget,
-      rating: 0,
-      reviewCount: 0,
-      about: description.trim() || `A trip to ${destination.name}.`,
-      activities,
-      joinMethod,
-      hostId: session?.user.id ?? 'me',
-      travelerIds: [],
-      itinerary: [],
-      reviews: [],
-      distanceKm: 0,
-      map: { x: 0.5, y: 0.5 },
-    };
-    publishTrip(trip);
-    router.replace({ pathname: '/trip/[id]', params: { id: trip.id } });
+    setError(null);
+    setIsPublishing(true);
+    try {
+      const trip = await createTrip({
+        title: tripTitle,
+        destination: destination.name,
+        startDate,
+        endDate,
+        budget,
+        maxMembers: GROUP_SIZES.find((g) => g.key === groupSize)?.maxMembers ?? 8,
+        activities,
+        joinMethod,
+        description: description.trim() || undefined,
+        audience: audience.trim() || undefined,
+      });
+      router.replace({ pathname: '/trip/[id]', params: { id: trip.id } });
+    } catch (publishError) {
+      setError(errorMessage(publishError, 'Could not publish the trip.'));
+      setIsPublishing(false);
+    }
   }
 
   const footer =
     step === PUBLISH_STEP ? (
       <View style={styles.publishActions}>
         <Button label="Edit" onPress={() => setStep(5)} style={styles.flex} variant="outline" />
-        <Button label="Publish Trip" onPress={publish} style={styles.flex} />
+        <Button label="Publish Trip" loading={isPublishing} onPress={publish} style={styles.flex} />
       </View>
     ) : (
       <Button disabled={!canContinue} label="Continue" onPress={() => setStep(step + 1)} />
@@ -153,8 +134,10 @@ export default function CreateTripScreen() {
         <>
           <Heading text="Where are you going?" />
           <SearchBar onChangeText={setQuery} placeholder="Search destination" value={query} />
+          {catalog.loading ? <LoadingState /> : null}
+          {catalog.error ? <ErrorText>{catalog.error}</ErrorText> : null}
           <View style={styles.list}>
-            {destinations
+            {(catalog.data ?? [])
               .filter((d) => d.name.toLowerCase().includes(query.trim().toLowerCase()))
               .map((d) => (
                 <DestinationRow
@@ -219,13 +202,28 @@ export default function CreateTripScreen() {
           <Txt style={styles.label} variant="label">
             How many people?
           </Txt>
-          <ChipRow grow onChange={setGroupSize} options={GROUP_SIZES} scroll={false} value={groupSize} />
+          <View style={styles.row}>
+            {GROUP_SIZES.map((size) => (
+              <Chip
+                key={size.key}
+                label={size.label}
+                onPress={() => setGroupSize(size.key)}
+                selected={groupSize === size.key}
+                style={styles.flex}
+              />
+            ))}
+          </View>
           <Txt style={[styles.label, styles.spaced]} variant="label">
             Budget per person
           </Txt>
           <View style={styles.list}>
             {BUDGETS.map((option) => (
-              <RadioOption key={option} label={option} onPress={() => setBudget(option)} selected={budget === option} />
+              <RadioOption
+                key={option.key}
+                label={option.label}
+                onPress={() => setBudget(option.key)}
+                selected={budget === option.key}
+              />
             ))}
           </View>
         </>
@@ -298,11 +296,11 @@ export default function CreateTripScreen() {
               <MetaRow icon="calendar-outline">
                 {formatShortDate(startDate)} - {formatShortDate(endDate)}
               </MetaRow>
-              <MetaRow icon="people-outline">{groupSize} travelers</MetaRow>
-              <MetaRow icon="wallet-outline">{budget} / person</MetaRow>
+              <MetaRow icon="people-outline">{groupLabel} travelers</MetaRow>
+              <MetaRow icon="wallet-outline">{budgetLabel} / person</MetaRow>
             </View>
             <View style={styles.tags}>
-              {activities.map((key) => (
+              {activities.filter(isInterestKey).map((key) => (
                 <View key={key} style={styles.tag}>
                   <Txt variant="caption">{interests[key].label}</Txt>
                 </View>
@@ -325,8 +323,9 @@ export default function CreateTripScreen() {
           </Txt>
           <Txt center color="muted">
             {formatShortDate(startDate)} - {formatShortDate(endDate)} · {destination.name} · hosted by{' '}
-            {profile.name.split(' ')[0] || 'you'}
+            {profile.name?.split(' ')[0] || 'you'}
           </Txt>
+          {error ? <ErrorText>{error}</ErrorText> : null}
           <Txt center color="subtle" variant="caption">
             {joinMethod === 'open'
               ? 'Travelers can join instantly once it’s published.'
@@ -405,6 +404,7 @@ const useStyles = makeStyles((c) => ({
   label: { marginBottom: 8 },
   spaced: { marginTop: 18 },
   list: { gap: 10, marginTop: 12 },
+  row: { flexDirection: 'row', gap: 8 },
   fields: { gap: 14 },
   destination: {
     flexDirection: 'row',

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 
 // All environment access goes through this module so misconfiguration fails at startup,
 // not on the first request that happens to need a value.
@@ -103,6 +104,12 @@ export const env = {
   // Without a configured secret, sessions only survive until the API restarts.
   sessionSecret: sessionSecret ? new TextEncoder().encode(sessionSecret) : randomBytes(32),
   isSessionSecretConfigured: Boolean(sessionSecret),
+  // Where uploaded images are written (a directory URL ending in '/'). Defaults to backend/uploads.
+  uploadDir: optional('UPLOAD_DIR')
+    ? pathToFileURL(`${optional('UPLOAD_DIR')!.replace(/\/+$/, '')}/`)
+    : new URL('../../uploads/', import.meta.url),
+  // POST /api/auth/dev-login signs in as a demo user without any credentials. Never in production.
+  devLoginEnabled: !isProduction && optional('DEV_LOGIN') !== 'false',
   phoneAuth: {
     provider: otpProvider,
     twilio: parseTwilioConfig(otpProvider),

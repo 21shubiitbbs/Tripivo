@@ -1,5 +1,5 @@
 import type { CreatedAt, CurrencyCode, DateString, Money, Timestamps, Uuid } from './common.js';
-import type { ExpenseCategory, JoinRequestStatus, TripStatus } from './enums.js';
+import type { ExpenseCategory, JoinMethod, JoinRequestStatus, TripStatus } from './enums.js';
 
 export type TripRow = Timestamps & {
   id: Uuid;
@@ -14,6 +14,32 @@ export type TripRow = Timestamps & {
   currency: CurrencyCode;
   max_members: number;
   status: TripStatus;
+  cover_image: string | null;
+  /** Interest keys, e.g. ['beaches', 'nightlife']. */
+  activities: string[];
+  join_method: JoinMethod;
+  audience: string | null;
+  /** numeric(9, 6), as strings. */
+  latitude: string | null;
+  longitude: string | null;
+};
+
+/** Primary key is (user_id, trip_id). */
+export type SavedTripRow = CreatedAt & {
+  user_id: Uuid;
+  trip_id: Uuid;
+};
+
+/** The destination catalog (reference data seeded by migration 004). */
+export type DestinationRow = {
+  id: string;
+  name: string;
+  tags: string;
+  image_url: string;
+  latitude: string;
+  longitude: string;
+  popularity: number;
+  trending: boolean;
 };
 
 /** At most one `pending` request per (trip, user); decided requests are kept as history. */
@@ -33,6 +59,7 @@ export type ItineraryActivity = {
   title: string;
   location?: string;
   notes?: string;
+  image?: string;
 };
 
 /** Unique per (trip, day_number). */

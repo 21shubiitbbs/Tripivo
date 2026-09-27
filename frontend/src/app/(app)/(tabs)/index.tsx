@@ -3,13 +3,30 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { DestinationTile, TripListCard } from '../../../components/trips';
-import { Avatar, ChipRow, IconButton, Screen, SearchBar, SectionTitle, Txt } from '../../../components/ui';
-import { destinations } from '../../../data/mock';
-import { useAppData } from '../../../lib/appData';
-import { useAuth } from '../../../lib/auth';
+import {
+  Avatar,
+  ChipRow,
+  EmptyState,
+  ErrorState,
+  IconButton,
+  LoadingState,
+  Screen,
+  SearchBar,
+  SectionTitle,
+  Txt,
+} from '../../../components/ui';
+import { getDestinations, getNotifications, searchTrips, type TripCategory } from '../../../lib/api';
+import { useProfile } from '../../../lib/auth';
+import { useQuery } from '../../../lib/useQuery';
 import { makeStyles, useTheme } from '../../../theme';
 
-const CATEGORIES = ['All', 'Trekking', 'Beaches', 'Weekend', 'Nightlife'];
+const CATEGORIES: { label: string; key: TripCategory | null }[] = [
+  { label: 'All', key: null },
+  { label: 'Trekking', key: 'trekking' },
+  { label: 'Beaches', key: 'beaches' },
+  { label: 'Weekend', key: 'weekend' },
+  { label: 'Nightlife', key: 'nightlife' },
+];
 
 function greeting() {
   const hour = new Date().getHours();
@@ -22,18 +39,15 @@ function greeting() {
 export default function HomeScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { profile } = useAuth();
-  const { trips } = useAppData();
+  const profile = useProfile();
   const [category, setCategory] = useState('All');
-  const firstName = profile.name.split(' ')[0];
+  const categoryKey = CATEGORIES.find((c) => c.label === category)?.key ?? undefined;
 
-  const liked = trips.filter((trip) => {
-    if (category === 'Trekking') return trip.activities.includes('trekking');
-    if (category === 'Beaches') return trip.activities.includes('beaches');
-    if (category === 'Nightlife') return trip.activities.includes('nightlife');
-    if (category === 'Weekend') return trip.nights <= 3;
-    return true;
-  });
+  const destinations = useQuery('destinations', getDestinations);
+  const trips = useQuery(`home-trips-${categoryKey ?? 'all'}`, () => searchTrips({ category: categoryKey, limit: 20 }));
+  const notifications = useQuery('notifications-unread', () => getNotifications());
+  const unread = notifications.data?.unread ?? 0;
+  const firstName = profile.name?.split(' ')[0];
 
   return (
     <Screen edges={['top']}>
@@ -44,13 +58,16 @@ export default function HomeScreen() {
           </Txt>
           {firstName || 'traveler'} 👋
         </Txt>
-        <IconButton
-          accessibilityLabel="Notifications"
-          icon={<Ionicons color={colors.text} name="notifications-outline" size={22} />}
-          onPress={() => router.push('/notifications')}
-        />
+        <View>
+          <IconButton
+            accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'}
+            icon={<Ionicons color={colors.text} name="notifications-outline" size={22} />}
+            onPress={() => router.push('/notifications')}
+          />
+          {unread ? <View style={styles.badge} /> : null}
+        </View>
         <Pressable accessibilityLabel="Profile" onPress={() => router.navigate('/profile')}>
-          <Avatar name={profile.name} size={40} uri={profile.photo} />
+          <Avatar name={profile.name} size={40} uri={profile.picture} />
         </Pressable>
       </View>
 
@@ -64,12 +81,12 @@ export default function HomeScreen() {
       />
 
       <View style={styles.chips}>
-        <ChipRow onChange={setCategory} options={CATEGORIES} value={category} />
+        <ChipRow onChange={setCategory} options={CATEGORIES.map((c) => c.label)} value={category} />
       </View>
 
       <SectionTitle action="See all" onAction={() => router.push('/search')} title="Popular Destinations" />
       <ScrollView contentContainerStyle={styles.tiles} horizontal showsHorizontalScrollIndicator={false}>
-        {destinations.slice(0, 6).map((destination) => (
+        {(destinations.data ?? []).slice(0, 8).map((destination) => (
           <DestinationTile
             height={130}
             image={destination.image}
@@ -81,13 +98,22 @@ export default function HomeScreen() {
         ))}
       </ScrollView>
 
-      <SectionTitle action="View all" onAction={() => router.push('/results')} title="Trips you may like" />
+      <SectionTitle
+        action="View all"
+        onAction={() => router.push({ pathname: '/results', params: { category: categoryKey ?? '' } })}
+        title="Trips you may like"
+      />
       <View style={styles.list}>
-        {liked.length ? (
-          liked.map((trip) => <TripListCard key={trip.id} trip={trip} />)
-        ) : (
-          <Txt color="muted">No {category.toLowerCase()} trips yet. Why not create one?</Txt>
-        )}
+        {trips.loading ? <LoadingState /> : null}
+        {trips.error && !trips.data ? <ErrorState message={trips.error} onRetry={trips.reload} /> : null}
+        {trips.data?.map((trip) => <TripListCard key={trip.id} trip={trip} />)}
+        {trips.data?.length === 0 ? (
+          <EmptyState
+            icon="map-search-outline"
+            message={`No ${category === 'All' ? '' : `${category.toLowerCase()} `}trips yet. Why not create one?`}
+            title="Nothing here yet"
+          />
+        ) : null}
       </View>
     </Screen>
   );
@@ -97,6 +123,17 @@ const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 8, marginBottom: 16 },
   greeting: { fontWeight: '500', color: c.textMuted },
+  badge: {
+    position: 'absolute',
+    top: 8,
+    right: 9,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: c.background,
+    backgroundColor: c.danger,
+  },
   chips: { marginTop: 16 },
   tiles: { gap: 10 },
   list: { gap: 12 },

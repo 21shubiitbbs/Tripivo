@@ -10,6 +10,8 @@ export type UserRow = Timestamps & {
   password_hash: string | null;
   name: string | null;
   picture: string | null;
+  /** Unique, case-insensitive. */
+  username: string | null;
   last_login_at: Date;
 };
 
@@ -20,6 +22,14 @@ export type TravelProfileRow = Timestamps & {
   budget: BudgetLevel | null;
   travel_style: TravelStyle | null;
   interests: string[];
+  age: number | null;
+  gender: string | null;
+  city: string | null;
+  profession: string | null;
+  /** Interest keys picked during onboarding. */
+  travel_styles: string[];
+  /** Set when profile setup is finished. */
+  completed_at: Date | null;
 };
 
 /** 1:1 with travel_profiles; the criteria used to match travellers with trips. */

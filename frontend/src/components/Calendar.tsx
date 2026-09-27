@@ -48,6 +48,54 @@ export function nightsBetween(start: string, end: string) {
   return Math.round((fromIsoDate(end).getTime() - fromIsoDate(start).getTime()) / 86_400_000);
 }
 
+/** A field that shows the picked date and opens a calendar below it when tapped. */
+export function DatePickerField({
+  placeholder,
+  value,
+  onChange,
+  minDate,
+}: {
+  placeholder: string;
+  value: string | null;
+  onChange: (value: string | null) => void;
+  minDate?: string;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <View>
+      <Pressable
+        accessibilityHint="Opens a calendar"
+        accessibilityRole="button"
+        onPress={() => setIsOpen((open) => !open)}
+        style={styles.field}
+      >
+        <Ionicons color={colors.textMuted} name="calendar-outline" size={18} />
+        <Txt color={value ? 'default' : 'subtle'} style={styles.fieldText}>
+          {value ? formatShortDate(value) : placeholder}
+        </Txt>
+        {value ? (
+          <Pressable accessibilityLabel="Clear date" hitSlop={10} onPress={() => onChange(null)}>
+            <Ionicons color={colors.textSubtle} name="close-circle" size={18} />
+          </Pressable>
+        ) : null}
+      </Pressable>
+      {isOpen ? (
+        <Calendar
+          minDate={minDate}
+          onChange={(date) => {
+            onChange(date);
+            setIsOpen(false);
+          }}
+          value={value}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 /** A month grid. Days before `minDate` can't be picked. */
 export function Calendar({
   value,
@@ -123,6 +171,18 @@ export function Calendar({
 }
 
 const useStyles = makeStyles((c) => ({
+  field: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.surface,
+  },
+  fieldText: { flex: 1 },
   calendar: {
     marginTop: 8,
     padding: 12,

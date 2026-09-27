@@ -1,31 +1,31 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { TripListCard } from '../../../components/trips';
-import { EmptyState, Screen, SegmentTabs, Txt } from '../../../components/ui';
-import { useAppData, type MyTripStatus } from '../../../lib/appData';
+import { EmptyState, ErrorState, LoadingState, Screen, SegmentTabs, Txt } from '../../../components/ui';
+import { getMyTrips, type TripPhase, type TripSummary } from '../../../lib/api';
+import { useQuery } from '../../../lib/useQuery';
 import { makeStyles } from '../../../theme';
 
-const TABS: { label: string; status: MyTripStatus }[] = [
-  { label: 'Upcoming', status: 'upcoming' },
-  { label: 'Active', status: 'active' },
-  { label: 'Completed', status: 'completed' },
+const TABS: { label: string; phase: TripPhase }[] = [
+  { label: 'Upcoming', phase: 'upcoming' },
+  { label: 'Active', phase: 'active' },
+  { label: 'Completed', phase: 'completed' },
 ];
 
-const ROLE_LABELS = { hosting: 'You’re hosting', joined: 'Joined', requested: 'Request pending' };
+function roleLabel(trip: TripSummary) {
+  if (trip.membership === 'host') return 'You’re hosting';
+  if (trip.membership === 'pending') return 'Request pending';
+  if (trip.phase === 'completed') return 'Joined · Leave a review';
+  return 'Joined';
+}
 
 // 21. My Trips.
 export default function MyTripsScreen() {
   const styles = useStyles();
-  const { myTrips, tripById } = useAppData();
+  const trips = useQuery('my-trips', getMyTrips);
   const [tab, setTab] = useState(TABS[0].label);
-  const status = TABS.find((t) => t.label === tab)?.status ?? 'upcoming';
-
-  const entries = myTrips
-    .filter((entry) => entry.status === status)
-    .flatMap((entry) => {
-      const trip = tripById(entry.tripId);
-      return trip ? [{ entry, trip }] : [];
-    });
+  const phase = TABS.find((t) => t.label === tab)?.phase ?? 'upcoming';
+  const visible = trips.data?.filter((trip) => trip.phase === phase) ?? [];
 
   return (
     <Screen edges={['top']}>
@@ -35,22 +35,24 @@ export default function MyTripsScreen() {
       <SegmentTabs onChange={setTab} options={TABS.map((t) => t.label)} value={tab} />
 
       <View style={styles.list}>
-        {entries.length ? (
-          entries.map(({ entry, trip }) => (
-            <TripListCard
-              key={trip.id}
-              showSave={false}
-              subtitle={entry.next ?? ROLE_LABELS[entry.role]}
-              trip={trip}
-            />
-          ))
-        ) : (
+        {trips.loading ? <LoadingState /> : null}
+        {trips.error && !trips.data ? <ErrorState message={trips.error} onRetry={trips.reload} /> : null}
+        {visible.map((trip) => (
+          <TripListCard key={trip.id} showSave={false} subtitle={roleLabel(trip)} trip={trip} />
+        ))}
+        {trips.data && visible.length === 0 ? (
           <EmptyState
             icon="bag-suitcase-outline"
-            message={status === 'active' ? 'Trips you’re on right now show up here.' : 'Nothing here yet.'}
+            message={
+              phase === 'active'
+                ? 'Trips you’re on right now show up here.'
+                : phase === 'upcoming'
+                  ? 'Join a trip or create your own with the + button.'
+                  : 'Trips you’ve finished show up here.'
+            }
             title={`No ${tab.toLowerCase()} trips`}
           />
-        )}
+        ) : null}
       </View>
     </Screen>
   );

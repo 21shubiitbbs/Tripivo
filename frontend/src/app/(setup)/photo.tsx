@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Image, Pressable, ScrollView, View } from 'react-native';
-import { Avatar, Button, Header, Screen, TitleBlock, Txt } from '../../components/ui';
-import { images } from '../../data/mock';
-import { useAuth } from '../../lib/auth';
-import { pickSquarePhoto } from '../../lib/pickPhoto';
+import { useState } from 'react';
+import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import { Avatar, Button, ErrorText, Header, Screen, TitleBlock, Txt } from '../../components/ui';
+import { images } from '../../data/catalog';
+import { useAuth, useProfile } from '../../lib/auth';
+import { errorMessage } from '../../lib/format';
+import { pickAndUploadSquarePhoto } from '../../lib/pickPhoto';
 import { makeStyles, useTheme } from '../../theme';
 
 const SUGGESTED_PHOTOS = [images.goaPalms, images.photography, images.goaSunset, images.kerala, images.ladakh];
@@ -13,26 +15,42 @@ const SUGGESTED_PHOTOS = [images.goaPalms, images.photography, images.goaSunset,
 export default function ProfilePhotoScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { profile, updateProfile, signOut } = useAuth();
+  const { updateProfile, signOut } = useAuth();
+  const profile = useProfile();
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function choosePhoto() {
-    const uri = await pickSquarePhoto().catch(() => null);
-    if (uri) updateProfile({ photo: uri });
+  async function save(getUrl: () => Promise<string | null>) {
+    setError(null);
+    setIsSaving(true);
+    try {
+      const url = await getUrl();
+      if (url) await updateProfile({ picture: url });
+    } catch (saveError) {
+      setError(errorMessage(saveError, 'Could not save your photo.'));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
     <Screen
-      footer={<Button label="Continue" onPress={() => router.push('/about')} />}
+      footer={<Button disabled={isSaving} label="Continue" onPress={() => router.push('/about')} />}
       header={<Header onBack={signOut} />}
     >
       <TitleBlock subtitle="Let others know who you are" title="Add a Profile Photo" />
 
-      <Pressable accessibilityLabel="Choose profile photo" onPress={choosePhoto} style={styles.avatarWrap}>
-        <Avatar name={profile.name} size={180} uri={profile.photo} />
+      <Pressable
+        accessibilityLabel="Choose profile photo"
+        onPress={() => save(pickAndUploadSquarePhoto)}
+        style={styles.avatarWrap}
+      >
+        <Avatar name={profile.name} size={180} uri={profile.picture} />
         <View style={styles.cameraButton}>
-          <Ionicons color="#FFFFFF" name="camera" size={22} />
+          {isSaving ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons color="#FFFFFF" name="camera" size={22} />}
         </View>
       </Pressable>
+      {error ? <ErrorText>{error}</ErrorText> : null}
 
       <Txt style={styles.suggestTitle} variant="label">
         Or use a travel photo
@@ -42,13 +60,17 @@ export default function ProfilePhotoScreen() {
           <Pressable
             accessibilityLabel="Use this photo"
             key={uri}
-            onPress={() => updateProfile({ photo: uri })}
-            style={[styles.suggestion, profile.photo === uri && styles.suggestionSelected]}
+            onPress={() => save(async () => uri)}
+            style={[styles.suggestion, profile.picture === uri && styles.suggestionSelected]}
           >
             <Image source={{ uri }} style={styles.suggestionImage} />
           </Pressable>
         ))}
-        <Pressable accessibilityLabel="Choose from library" onPress={choosePhoto} style={[styles.suggestion, styles.addTile]}>
+        <Pressable
+          accessibilityLabel="Choose from library"
+          onPress={() => save(pickAndUploadSquarePhoto)}
+          style={[styles.suggestion, styles.addTile]}
+        >
           <Ionicons color={colors.primary} name="images-outline" size={26} />
         </Pressable>
       </ScrollView>

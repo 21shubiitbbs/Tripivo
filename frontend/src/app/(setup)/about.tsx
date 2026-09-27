@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { Button, ChipRow, Field, Header, Screen, Txt } from '../../components/ui';
-import { useAuth } from '../../lib/auth';
+import { Button, ChipRow, ErrorText, Field, Header, Screen, Txt } from '../../components/ui';
+import { useAuth, useProfile } from '../../lib/auth';
+import { errorMessage } from '../../lib/format';
 import { makeStyles } from '../../theme';
 
 const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -10,21 +11,38 @@ const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 // 11. Profile setup: basic information.
 export default function AboutYouScreen() {
   const styles = useStyles();
-  const { profile, updateProfile } = useAuth();
-  const [name, setName] = useState(profile.name);
-  const [age, setAge] = useState(profile.age);
-  const [gender, setGender] = useState(profile.gender);
-  const [city, setCity] = useState(profile.city);
-  const [profession, setProfession] = useState(profile.profession);
+  const { updateProfile } = useAuth();
+  const profile = useProfile();
+  const [name, setName] = useState(profile.name ?? '');
+  const [age, setAge] = useState(profile.age ? String(profile.age) : '');
+  const [gender, setGender] = useState(profile.gender ?? '');
+  const [city, setCity] = useState(profile.city ?? '');
+  const [profession, setProfession] = useState(profile.profession ?? '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function next() {
-    updateProfile({ name: name.trim(), age, gender, city: city.trim(), profession: profession.trim() });
-    router.push('/interests');
+  async function next() {
+    setError(null);
+    setIsSaving(true);
+    try {
+      await updateProfile({
+        name: name.trim(),
+        age: age ? Number(age) : null,
+        gender,
+        city: city.trim(),
+        profession: profession.trim(),
+      });
+      router.push('/interests');
+    } catch (saveError) {
+      setError(errorMessage(saveError, 'Could not save your details.'));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
     <Screen
-      footer={<Button disabled={!name.trim()} label="Continue" onPress={next} />}
+      footer={<Button disabled={!name.trim()} label="Continue" loading={isSaving} onPress={next} />}
       header={<Header centered title="Tell Us About You" />}
     >
       <Txt style={styles.section} variant="h3">
@@ -55,6 +73,7 @@ export default function AboutYouScreen() {
           value={profession}
         />
       </View>
+      {error ? <ErrorText>{error}</ErrorText> : null}
     </Screen>
   );
 }

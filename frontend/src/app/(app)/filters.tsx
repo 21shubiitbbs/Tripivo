@@ -2,8 +2,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { Button, Chip, ChipRow, Field, Header, Screen, Txt, type MciName } from '../../components/ui';
-import { BUDGETS, GROUP_SIZES, interests, PROFILE_INTERESTS } from '../../data/mock';
+import { DatePickerField, toIsoDate } from '../../components/Calendar';
+import { Button, Chip, Field, Header, Screen, Txt, type MciName } from '../../components/ui';
+import { BUDGETS, GROUP_SIZES, interests, PROFILE_INTERESTS } from '../../data/catalog';
 import { emptyFilters, useAppData } from '../../lib/appData';
 import { makeStyles, useTheme } from '../../theme';
 
@@ -13,6 +14,7 @@ export default function FiltersScreen() {
   const { colors } = useTheme();
   const { filters, setFilters } = useAppData();
   const [draft, setDraft] = useState(filters);
+  const today = toIsoDate(new Date());
 
   function toggleInterest(key: string) {
     setDraft((current) => ({
@@ -25,8 +27,9 @@ export default function FiltersScreen() {
 
   function apply() {
     setFilters(draft);
-    router.dismiss();
-    router.push({ pathname: '/results', params: { q: draft.destination } });
+    // Back to the results that opened the filters (they reload with the new filters), or on to
+    // new results when opened from Search.
+    router.dismissTo({ pathname: '/results', params: { q: draft.destination } });
   }
 
   return (
@@ -55,40 +58,42 @@ export default function FiltersScreen() {
       />
 
       <Label text="Date Range" />
-      <View style={styles.row}>
-        <Field
-          containerStyle={styles.flex}
-          icon="calendar-outline"
-          onChangeText={(from) => setDraft({ ...draft, from })}
-          placeholder="From (15 Oct)"
-          value={draft.from}
+      <View style={styles.dates}>
+        <DatePickerField
+          minDate={today}
+          onChange={(from) => setDraft({ ...draft, from: from ?? '', to: from && draft.to && draft.to < from ? '' : draft.to })}
+          placeholder="From"
+          value={draft.from || null}
         />
-        <Field
-          containerStyle={styles.flex}
-          icon="calendar-outline"
-          onChangeText={(to) => setDraft({ ...draft, to })}
-          placeholder="To (18 Oct)"
-          value={draft.to}
+        <DatePickerField
+          minDate={draft.from || today}
+          onChange={(to) => setDraft({ ...draft, to: to ?? '' })}
+          placeholder="To"
+          value={draft.to || null}
         />
       </View>
 
       <Label text="Group Size" />
-      <ChipRow
-        grow
-        onChange={(size) => setDraft({ ...draft, groupSize: draft.groupSize === size ? null : size })}
-        options={GROUP_SIZES}
-        scroll={false}
-        value={draft.groupSize}
-      />
+      <View style={styles.row}>
+        {GROUP_SIZES.map((size) => (
+          <Chip
+            key={size.key}
+            label={size.label}
+            onPress={() => setDraft({ ...draft, groupSize: draft.groupSize === size.key ? null : size.key })}
+            selected={draft.groupSize === size.key}
+            style={styles.flex}
+          />
+        ))}
+      </View>
 
       <Label text="Budget (Per Person)" />
       <View style={styles.budgetGrid}>
         {BUDGETS.map((budget) => (
-          <View key={budget} style={styles.budgetCell}>
+          <View key={budget.key} style={styles.budgetCell}>
             <Chip
-              label={budget}
-              onPress={() => setDraft({ ...draft, budget: draft.budget === budget ? null : budget })}
-              selected={draft.budget === budget}
+              label={budget.label}
+              onPress={() => setDraft({ ...draft, budget: draft.budget === budget.key ? null : budget.key })}
+              selected={draft.budget === budget.key}
             />
           </View>
         ))}
@@ -137,6 +142,7 @@ const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
   label: { marginTop: 20, marginBottom: 10 },
   row: { flexDirection: 'row', gap: 10 },
+  dates: { gap: 10 },
   budgetGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
   budgetCell: { width: '50%', padding: 4 },
   interestRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

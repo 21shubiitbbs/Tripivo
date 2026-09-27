@@ -21,6 +21,7 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { status, profile } = useAuth();
+  const isProfileComplete = profile?.completed ?? false;
   const { colors } = useTheme();
   const isSignedIn = status === 'signedIn';
 
@@ -35,10 +36,10 @@ function RootNavigator() {
       <Stack.Protected guard={!isSignedIn}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>
-      <Stack.Protected guard={isSignedIn && !profile.completed}>
+      <Stack.Protected guard={isSignedIn && !isProfileComplete}>
         <Stack.Screen name="(setup)" />
       </Stack.Protected>
-      <Stack.Protected guard={isSignedIn && profile.completed}>
+      <Stack.Protected guard={isSignedIn && isProfileComplete}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>
       <Stack.Screen name="auth/google" />

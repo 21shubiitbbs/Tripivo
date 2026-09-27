@@ -4,33 +4,51 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Image, Pressable, ScrollView, Share, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { tripImage, useSavedToggle } from '../../../../components/trips';
 import { ItineraryView, ReviewsView, TravelersGrid } from '../../../../components/tripSections';
-import { Button, EmptyState, formatPrice, Header, IconButton, MetaRow, Screen, SectionTitle, Txt, UnderlineTabs } from '../../../../components/ui';
-import { useAppData } from '../../../../lib/appData';
+import {
+  Button,
+  ErrorState,
+  ErrorText,
+  Header,
+  IconButton,
+  LoadingState,
+  MetaRow,
+  Screen,
+  SectionTitle,
+  Txt,
+  UnderlineTabs,
+} from '../../../../components/ui';
+import { interests, isInterestKey } from '../../../../data/catalog';
+import { getTrip, leaveTrip, type TripDetail } from '../../../../lib/api';
+import { errorMessage, formatBudget, formatDateRange } from '../../../../lib/format';
+import { useQuery } from '../../../../lib/useQuery';
 import { makeStyles, MAX_CONTENT_WIDTH, useTheme } from '../../../../theme';
 
 const TABS = ['About', 'Itinerary', 'Travelers', 'Reviews'];
 
 // 17. Trip details.
 export default function TripDetailsScreen() {
-  const styles = useStyles();
-  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { tripById, savedTripIds, toggleSaved, myTrips, chatIdFor } = useAppData();
-  const [tab, setTab] = useState(TABS[0]);
-  const trip = tripById(id);
+  const trip = useQuery(`trip-${id}`, () => getTrip(id));
 
-  if (!trip) {
+  if (!trip.data) {
     return (
       <Screen header={<Header />}>
-        <EmptyState icon="map-marker-question-outline" message="It may have been removed." title="Trip not found" />
+        {trip.error ? <ErrorState message={trip.error} onRetry={trip.reload} /> : <LoadingState />}
       </Screen>
     );
   }
+  return <TripDetails onChanged={trip.reload} trip={trip.data} />;
+}
 
-  const isSaved = savedTripIds.includes(trip.id);
-  const membership = myTrips.find((entry) => entry.tripId === trip.id);
-  const tripId = trip.id;
+function TripDetails({ trip, onChanged }: { trip: TripDetail; onChanged: () => Promise<void> }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [tab, setTab] = useState(TABS[0]);
+  const { isSaved, toggle } = useSavedToggle(trip);
+  const [isLeaving, setIsLeaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function openSection(section: string) {
     const pathname = {
@@ -38,20 +56,39 @@ export default function TripDetailsScreen() {
       Travelers: '/trip/[id]/travelers',
       Reviews: '/trip/[id]/reviews',
     }[section];
-    if (pathname) router.push({ pathname, params: { id: tripId } });
+    if (pathname) router.push({ pathname, params: { id: trip.id } });
   }
+
+  async function leave() {
+    setError(null);
+    setIsLeaving(true);
+    try {
+      await leaveTrip(trip.id);
+      await onChanged();
+    } catch (leaveError) {
+      setError(errorMessage(leaveError, 'Could not update your place on this trip.'));
+    } finally {
+      setIsLeaving(false);
+    }
+  }
+
+  function openChat() {
+    if (trip.chatRoomId) router.push({ pathname: '/chat/[id]', params: { id: trip.chatRoomId } });
+  }
+
+  const isFull = trip.memberCount >= trip.maxMembers;
 
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Image source={{ uri: trip.image }} style={styles.heroImage} />
+          <Image source={{ uri: tripImage(trip) }} style={styles.heroImage} />
           <SafeAreaView edges={['top']} style={styles.heroBar}>
             <IconButton
               accessibilityLabel="Back"
               icon={<Ionicons color="#FFFFFF" name="arrow-back" size={22} />}
-              onPress={() => router.back()}
+              onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
               style={styles.heroButton}
             />
             <IconButton
@@ -71,26 +108,47 @@ export default function TripDetailsScreen() {
             <IconButton
               accessibilityLabel={isSaved ? 'Remove bookmark' : 'Bookmark'}
               icon={<Ionicons color={colors.primary} name={isSaved ? 'bookmark' : 'bookmark-outline'} size={22} />}
-              onPress={() => toggleSaved(trip.id)}
+              onPress={toggle}
             />
           </View>
           <View style={styles.rating}>
             <Ionicons color={colors.star} name="star" size={16} />
-            <Txt variant="bodyStrong">{trip.rating.toFixed(1)}</Txt>
+            <Txt variant="bodyStrong">{trip.rating?.toFixed(1) ?? 'New'}</Txt>
             <Txt color="muted">({trip.reviewCount} reviews)</Txt>
           </View>
           <View style={styles.meta}>
             <MetaRow icon="location-outline">{trip.destination}</MetaRow>
             <MetaRow icon="calendar-outline">
-              {trip.dateLabel} ({trip.nights} nights)
+              {formatDateRange(trip)}
+              {trip.nights !== null ? ` (${trip.nights} nights)` : ''}
             </MetaRow>
             <MetaRow icon="people-outline">
-              {trip.joined} / {trip.spots} travelers
+              {trip.memberCount} / {trip.maxMembers} travelers{isFull ? ' · Full' : ''}
             </MetaRow>
+            <MetaRow icon="person-circle-outline">Hosted by {trip.host.name ?? 'a traveler'}</MetaRow>
           </View>
           <Txt color="success" style={styles.price} variant="h2">
-            {formatPrice(trip.pricePerPerson)} <Txt color="success">/ person</Txt>
+            {formatBudget(trip)} <Txt color="success">/ person</Txt>
           </Txt>
+
+          {trip.membership === 'host' ? (
+            <View style={styles.hostActions}>
+              <Button
+                compact
+                label={trip.pendingRequestCount ? `Join requests (${trip.pendingRequestCount})` : 'Join requests'}
+                onPress={() => router.push({ pathname: '/trip/[id]/requests', params: { id: trip.id } })}
+                style={styles.flex}
+                variant="soft"
+              />
+              <Button
+                compact
+                label="Edit itinerary"
+                onPress={() => router.push({ pathname: '/trip/[id]/itinerary', params: { id: trip.id, edit: '1' } })}
+                style={styles.flex}
+                variant="soft"
+              />
+            </View>
+          ) : null}
 
           <UnderlineTabs onChange={setTab} options={TABS} value={tab} />
 
@@ -99,17 +157,35 @@ export default function TripDetailsScreen() {
               <>
                 <Txt variant="h3">About this trip</Txt>
                 <Txt color="muted" style={styles.about}>
-                  {trip.about}
+                  {trip.description || 'The host hasn’t described this trip yet.'}
                 </Txt>
+                {trip.audience ? (
+                  <>
+                    <SectionTitle title="Who should join" />
+                    <Txt color="muted">{trip.audience}</Txt>
+                  </>
+                ) : null}
+                {trip.activities.some(isInterestKey) ? (
+                  <>
+                    <SectionTitle title="Activities" />
+                    <View style={styles.tags}>
+                      {trip.activities.filter(isInterestKey).map((key) => (
+                        <View key={key} style={styles.tag}>
+                          <Txt variant="caption">{interests[key].label}</Txt>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
                 <SectionTitle title="Join method" />
                 <MetaRow icon={trip.joinMethod === 'open' ? 'flash-outline' : 'shield-checkmark-outline'}>
                   {trip.joinMethod === 'open' ? 'Anyone can join this trip' : 'Host approval required'}
                 </MetaRow>
               </>
             ) : null}
-            {tab === 'Itinerary' ? <ItineraryView trip={trip} /> : null}
-            {tab === 'Travelers' ? <TravelersGrid trip={trip} /> : null}
-            {tab === 'Reviews' ? <ReviewsView trip={trip} /> : null}
+            {tab === 'Itinerary' ? <ItineraryView itinerary={trip.itinerary} /> : null}
+            {tab === 'Travelers' ? <TravelersGrid travelers={trip.travelers} /> : null}
+            {tab === 'Reviews' ? <ReviewsView onReviewed={() => void onChanged()} trip={trip} /> : null}
             {tab !== 'About' ? (
               <Pressable accessibilityRole="link" onPress={() => openSection(tab)} style={styles.openFull}>
                 <Txt color="primary" variant="label">
@@ -122,20 +198,22 @@ export default function TripDetailsScreen() {
       </ScrollView>
 
       <SafeAreaView edges={['bottom']} style={styles.footer}>
-        {membership?.role === 'requested' ? (
-          <Button disabled label="Request sent · Waiting for host" variant="soft" />
-        ) : membership ? (
-          <Button
-            label="Open group chat"
-            onPress={() => {
-              const chatId = chatIdFor(trip.id);
-              if (chatId) router.push({ pathname: '/chat/[id]', params: { id: chatId } });
-              else router.navigate('/messages');
-            }}
-            variant="soft"
-          />
+        {error ? <ErrorText>{error}</ErrorText> : null}
+        {trip.membership === 'host' || trip.membership === 'member' ? (
+          <View style={styles.footerRow}>
+            <Button label="Open group chat" onPress={openChat} style={styles.flex} variant="soft" />
+            {trip.membership === 'member' && trip.phase !== 'completed' ? (
+              <Button label="Leave" loading={isLeaving} onPress={leave} variant="ghost" />
+            ) : null}
+          </View>
+        ) : trip.membership === 'pending' ? (
+          <Button label="Request sent · Withdraw" loading={isLeaving} onPress={leave} variant="outline" />
         ) : (
-          <Button label="Join Trip" onPress={() => router.push({ pathname: '/trip/[id]/join', params: { id: trip.id } })} />
+          <Button
+            disabled={isFull || trip.phase === 'completed'}
+            label={trip.phase === 'completed' ? 'This trip has ended' : isFull ? 'Trip is full' : 'Join Trip'}
+            onPress={() => router.push({ pathname: '/trip/[id]/join', params: { id: trip.id } })}
+          />
         )}
       </SafeAreaView>
     </View>
@@ -174,8 +252,11 @@ const useStyles = makeStyles((c) => ({
   rating: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   meta: { gap: 6, marginTop: 12 },
   price: { marginTop: 12, marginBottom: 8 },
+  hostActions: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   tabBody: { paddingTop: 18 },
   about: { marginTop: 8 },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: c.surfaceAlt },
   openFull: { alignSelf: 'center', marginTop: 16, padding: 8 },
   footer: {
     width: '100%',
@@ -185,4 +266,5 @@ const useStyles = makeStyles((c) => ({
     paddingTop: 10,
     paddingBottom: 12,
   },
+  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 }));

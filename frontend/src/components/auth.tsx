@@ -59,11 +59,11 @@ export function SocialSignIn() {
         >
           {isSigningIn ? <ActivityIndicator color={colors.primary} /> : <GoogleLogo size={22} />}
         </Pressable>
-        {/* Apple sign-in isn't wired to the backend yet, so it lets the user in without an account. */}
+        {/* The API has no Apple sign-in yet. */}
         <Pressable
           accessibilityLabel="Continue with Apple"
           accessibilityRole="button"
-          onPress={() => signIn(null)}
+          onPress={() => setError('Apple sign-in isn’t available yet. Use Google or your phone number.')}
           style={({ pressed }) => [styles.round, pressed && styles.pressed]}
         >
           <Ionicons color={colors.text} name="logo-apple" size={24} />

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Button, Header, ListRow, Screen, SectionTitle, SegmentTabs, Txt, type MciName } from '../../components/ui';
 import { getApiHealth } from '../../lib/api';
-import { useAuth } from '../../lib/auth';
+import { useAuth, useProfile } from '../../lib/auth';
 import { makeStyles, useTheme, type ThemePreference } from '../../theme';
 
 // Rows without an `href` are placeholders until those settings exist.
@@ -29,7 +29,8 @@ type ApiStatus = 'checking' | 'online' | 'offline';
 export default function SettingsScreen() {
   const styles = useStyles();
   const { preference, setPreference } = useTheme();
-  const { session, profile, signOut } = useAuth();
+  const { signOut } = useAuth();
+  const profile = useProfile();
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
 
   useEffect(() => {
@@ -62,11 +63,7 @@ export default function SettingsScreen() {
       />
 
       <SectionTitle title="Account" />
-      <Txt color="muted">
-        {session
-          ? `Signed in as ${session.user.email ?? session.user.phone ?? profile.name}`
-          : 'Signed in without an account (Apple sign-in is not connected yet)'}
-      </Txt>
+      <Txt color="muted">Signed in as {profile.email ?? profile.phone ?? profile.name ?? 'Tripivo traveler'}</Txt>
       <View style={styles.api}>
         <View style={[styles.dot, styles[`dot_${apiStatus}`]]} />
         <Txt color="muted" variant="caption">

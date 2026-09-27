@@ -1,11 +1,36 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
-import type { Trip } from '../data/mock';
-import { useAppData } from '../lib/appData';
+import { images } from '../data/catalog';
+import { setTripSaved, type TripSummary } from '../lib/api';
+import { formatBudget, formatDateRange } from '../lib/format';
 import { makeStyles, useTheme } from '../theme';
-import { formatPrice, MetaRow, Txt } from './ui';
+import { MetaRow, Txt } from './ui';
+
+export function tripImage(trip: Pick<TripSummary, 'coverImage'>) {
+  return trip.coverImage ?? images.goaPalms;
+}
+
+/** The heart on a trip: saves or unsaves it on the API, updating straight away. */
+export function useSavedToggle(trip: Pick<TripSummary, 'id' | 'isSaved'>) {
+  // The user's latest choice wins over the (possibly older) value the trip was loaded with.
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const isSaved = choice ?? trip.isSaved;
+
+  async function toggle() {
+    const next = !isSaved;
+    setChoice(next);
+    try {
+      await setTripSaved(trip.id, next);
+    } catch {
+      setChoice(!next);
+    }
+  }
+
+  return { isSaved, toggle };
+}
 
 /** Photo on the left, trip facts on the right. Used by Home, Search Results and My Trips. */
 export function TripListCard({
@@ -13,15 +38,14 @@ export function TripListCard({
   subtitle,
   showSave = true,
 }: {
-  trip: Trip;
-  /** Replaces the date/people/price rows, e.g. "Next: Beach Day" on My Trips. */
+  trip: TripSummary;
+  /** Replaces the date/people/price rows, e.g. "You’re hosting" on My Trips. */
   subtitle?: string;
   showSave?: boolean;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { savedTripIds, toggleSaved } = useAppData();
-  const isSaved = savedTripIds.includes(trip.id);
+  const { isSaved, toggle } = useSavedToggle(trip);
 
   return (
     <Pressable
@@ -29,18 +53,14 @@ export function TripListCard({
       onPress={() => router.push({ pathname: '/trip/[id]', params: { id: trip.id } })}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
-      <Image source={{ uri: trip.image }} style={styles.image} />
+      <Image source={{ uri: tripImage(trip) }} style={styles.image} />
       <View style={styles.body}>
         <View style={styles.titleRow}>
           <Txt numberOfLines={1} style={styles.title} variant="bodyStrong">
             {trip.title}
           </Txt>
           {showSave ? (
-            <Pressable
-              accessibilityLabel={isSaved ? 'Remove from saved' : 'Save trip'}
-              hitSlop={10}
-              onPress={() => toggleSaved(trip.id)}
-            >
+            <Pressable accessibilityLabel={isSaved ? 'Remove from saved' : 'Save trip'} hitSlop={10} onPress={toggle}>
               <Ionicons
                 color={isSaved ? colors.danger : colors.textSubtle}
                 name={isSaved ? 'heart' : 'heart-outline'}
@@ -52,7 +72,7 @@ export function TripListCard({
         {subtitle ? (
           <>
             <Txt color="muted" numberOfLines={1} variant="caption">
-              {trip.dateLabel} • {trip.joined} travelers
+              {formatDateRange(trip)} • {trip.memberCount} travelers
             </Txt>
             <Txt color="primary" style={styles.subtitle} variant="caption">
               {subtitle}
@@ -61,13 +81,13 @@ export function TripListCard({
         ) : (
           <>
             <MetaRow icon="calendar-outline" small>
-              {trip.dateLabel}
+              {formatDateRange(trip)}
             </MetaRow>
             <MetaRow icon="people-outline" small>
-              {trip.joined}/{trip.spots} people
+              {trip.memberCount}/{trip.maxMembers} people
             </MetaRow>
-            <Txt color="success" variant="bodyStrong">
-              {formatPrice(trip.pricePerPerson)}
+            <Txt color="success" numberOfLines={1} variant="bodyStrong">
+              {formatBudget(trip)}
               <Txt color="muted" variant="caption">
                 {' '}
                 / person

@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ImageBackground, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, TripivoLogo, Txt } from '../../components/ui';
-import { images } from '../../data/mock';
+import { images } from '../../data/catalog';
 import { MAX_CONTENT_WIDTH } from '../../theme';
 
 // 1. Splash / welcome.

@@ -1,30 +1,41 @@
 import { useState } from 'react';
-import { Button, Header, InterestGrid, Screen, TitleBlock } from '../../components/ui';
-import { interests, PROFILE_INTERESTS, type InterestKey } from '../../data/mock';
-import { useAuth } from '../../lib/auth';
+import { Button, ErrorText, Header, InterestGrid, Screen, TitleBlock } from '../../components/ui';
+import { interests, PROFILE_INTERESTS } from '../../data/catalog';
+import { useAuth, useProfile } from '../../lib/auth';
+import { errorMessage } from '../../lib/format';
 
 // 12. Profile setup: travel interests. Finishing marks the profile complete, which opens the app.
 export default function InterestsScreen() {
-  const { profile, updateProfile } = useAuth();
-  const [selected, setSelected] = useState<InterestKey[]>(profile.interests);
+  const { updateProfile } = useAuth();
+  const profile = useProfile();
+  const [selected, setSelected] = useState<string[]>(profile.interests);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function toggle(key: InterestKey) {
+  function toggle(key: string) {
     setSelected((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
+  }
+
+  async function finish() {
+    setError(null);
+    setIsSaving(true);
+    try {
+      // Completing the profile switches the navigator to the app; no navigation needed here.
+      await updateProfile({ interests: selected, completed: true });
+    } catch (saveError) {
+      setError(errorMessage(saveError, 'Could not save your interests.'));
+      setIsSaving(false);
+    }
   }
 
   return (
     <Screen
-      footer={
-        <Button
-          disabled={selected.length === 0}
-          label="Continue"
-          onPress={() => updateProfile({ interests: selected, completed: true })}
-        />
-      }
+      footer={<Button disabled={selected.length === 0} label="Continue" loading={isSaving} onPress={finish} />}
       header={<Header />}
     >
       <TitleBlock subtitle="Select your interests" title="Travel Interests" />
       <InterestGrid items={PROFILE_INTERESTS.map((key) => interests[key])} onToggle={toggle} selected={selected} />
+      {error ? <ErrorText>{error}</ErrorText> : null}
     </Screen>
   );
 }

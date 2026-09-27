@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { HttpError } from '../../shared/http/errors.js';
 import { requireAuth } from './auth.middleware.js';
-import { getCurrentUser, signInWithGoogle } from './auth.service.js';
+import { getCurrentUser, signInAsDemoUser, signInWithGoogle } from './auth.service.js';
 import {
   completeGoogleAuthorization,
   createGoogleAuthorizationUrl,
@@ -50,6 +50,11 @@ authRouter.post('/phone/send-code', async (request, response) => {
 /** Phone sign-in, step 2: exchange `{ phone, code }` for a session. */
 authRouter.post('/phone/verify', async (request, response) => {
   response.json(await verifyPhoneSignInCode(request.body?.phone, request.body?.code));
+});
+
+/** Development only (disabled in production or with DEV_LOGIN=false): a session for the demo account. */
+authRouter.post('/dev-login', async (_request, response) => {
+  response.json(await signInAsDemoUser());
 });
 
 authRouter.get('/me', requireAuth, async (_request, response) => {

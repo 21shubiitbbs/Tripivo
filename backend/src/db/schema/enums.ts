@@ -40,7 +40,7 @@ export type GroupMemberRole = (typeof GROUP_MEMBER_ROLES)[number];
 export const GROUP_MEMBER_STATUSES = ['active', 'left', 'removed'] as const;
 export type GroupMemberStatus = (typeof GROUP_MEMBER_STATUSES)[number];
 
-export const CHAT_MESSAGE_TYPES = ['text', 'image', 'system'] as const;
+export const CHAT_MESSAGE_TYPES = ['text', 'image', 'system', 'poll'] as const;
 export type ChatMessageType = (typeof CHAT_MESSAGE_TYPES)[number];
 
 export const SPLIT_TYPES = ['equal', 'custom'] as const;
@@ -53,3 +53,18 @@ export function isOneOf<const T extends readonly string[]>(
 ): input is T[number] {
   return typeof input === 'string' && (values as readonly string[]).includes(input);
 }
+
+export const JOIN_METHODS = ['open', 'approval'] as const;
+export type JoinMethod = (typeof JOIN_METHODS)[number];
+
+export const CHAT_ROOM_KINDS = ['group', 'direct'] as const;
+export type ChatRoomKind = (typeof CHAT_ROOM_KINDS)[number];
+
+export const NOTIFICATION_KINDS = ['trips', 'messages', 'requests'] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+export const REPORT_TARGET_TYPES = ['user', 'trip', 'message', 'other'] as const;
+export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
+
+export const REPORT_STATUSES = ['open', 'reviewing', 'resolved', 'dismissed'] as const;
+export type ReportStatus = (typeof REPORT_STATUSES)[number];

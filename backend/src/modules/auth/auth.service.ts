@@ -1,7 +1,12 @@
 import { OAuth2Client, type TokenPayload } from 'google-auth-library';
 import { env } from '../../config/env.js';
 import { HttpError } from '../../shared/http/errors.js';
-import { findPublicUserById, upsertGoogleUser, type PublicUser } from '../users/users.repository.js';
+import {
+  findPublicUserById,
+  upsertGoogleUser,
+  upsertPhoneUser,
+  type PublicUser,
+} from '../users/users.repository.js';
 import { createSessionToken } from './session.js';
 
 const googleClient = new OAuth2Client();
@@ -47,4 +52,14 @@ export async function getCurrentUser(userId: string): Promise<PublicUser> {
     throw HttpError.unauthorized('Account no longer exists');
   }
   return user;
+}
+
+/** Phone number of the demo account used by dev login and `npm run db:seed`. */
+export const DEMO_PHONE = '+910000000000';
+
+/** Development only: signs in as the demo account, creating it if needed. */
+export async function signInAsDemoUser(): Promise<AuthResult> {
+  if (!env.devLoginEnabled) throw HttpError.notFound('Not found');
+  const user = await upsertPhoneUser(DEMO_PHONE, 'Demo Traveler');
+  return { token: await createSessionToken(user.id), user };
 }

@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import { Button, InterestGrid, MetaRow, PageDots, Screen, Txt } from '../../components/ui';
-import { images, interests, travelers, TRAVEL_STYLES, type InterestKey } from '../../data/mock';
+import { images, interests, onboardingPortraits, TRAVEL_STYLES, type InterestKey } from '../../data/catalog';
 import { useAuth } from '../../lib/auth';
 import { makeStyles } from '../../theme';
 
@@ -20,7 +20,7 @@ export default function OnboardingScreen() {
   const styles = useStyles();
   const { draft, setDraft } = useAuth();
   const [index, setIndex] = useState(0);
-  const [styleKeys, setStyleKeys] = useState<InterestKey[]>(draft.travelStyles ?? []);
+  const [styleKeys, setStyleKeys] = useState<string[]>(draft.travelStyles ?? []);
   const slide = SLIDES[index];
   const isLast = index === SLIDES.length - 1;
 
@@ -106,8 +106,8 @@ function PeopleGlobe() {
       </View>
       {AVATAR_SPOTS.map((spot, i) => (
         <Image
-          key={travelers[i].id}
-          source={{ uri: travelers[i].avatar }}
+          key={onboardingPortraits[i]}
+          source={{ uri: onboardingPortraits[i] }}
           style={[
             styles.globeAvatar,
             { left: spot.left, top: spot.top, width: spot.size, height: spot.size, borderRadius: spot.size / 2 },

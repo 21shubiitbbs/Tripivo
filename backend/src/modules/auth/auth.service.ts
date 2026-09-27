@@ -13,7 +13,7 @@ export type AuthResult = {
 
 async function verifyGoogleIdToken(idToken: string): Promise<TokenPayload | undefined> {
   try {
-    const ticket = await googleClient.verifyIdToken({ idToken, audience: env.googleClientIds });
+    const ticket = await googleClient.verifyIdToken({ idToken, audience: [...env.googleClientIds] });
     return ticket.getPayload();
   } catch {
     throw HttpError.unauthorized('Invalid Google credential');

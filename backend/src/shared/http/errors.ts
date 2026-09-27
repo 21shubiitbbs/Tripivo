@@ -28,6 +28,10 @@ export class HttpError extends Error {
   static notFound(message: string) {
     return new HttpError(404, message);
   }
+
+  static tooManyRequests(message: string) {
+    return new HttpError(429, message);
+  }
 }
 
 /** Errors from Express middleware (e.g. malformed JSON) that carry a client-safe status. */

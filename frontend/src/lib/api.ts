@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000/api';
 
 export type ApiHealth = {
   status: string;
@@ -17,6 +17,7 @@ export async function getApiHealth(): Promise<ApiHealth> {
 export type User = {
   id: string;
   email: string | null;
+  phone: string | null;
   name: string | null;
   picture: string | null;
 };
@@ -43,6 +44,34 @@ export async function signInWithGoogle(idToken: string): Promise<Session> {
   }
 
   return response.json() as Promise<Session>;
+}
+
+async function postJson<T>(path: string, body: unknown, fallbackError: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw await readError(response, fallbackError);
+  }
+  return response.json() as Promise<T>;
+}
+
+export type SendPhoneCodeResult = {
+  /** The number normalized by the API (E.164), to use when verifying. */
+  phone: string;
+  resendAfterSeconds: number;
+};
+
+/** Texts a one-time sign-in code to `phone` (with country code, e.g. "+91 98765 43210"). */
+export function sendPhoneCode(phone: string): Promise<SendPhoneCodeResult> {
+  return postJson('/auth/phone/send-code', { phone }, 'Could not send the code');
+}
+
+/** Exchanges a phone number and the code texted to it for a Tripivo session. */
+export function verifyPhoneCode(phone: string, code: string): Promise<Session> {
+  return postJson('/auth/phone/verify', { phone, code }, 'Could not verify the code');
 }
 
 /** Returns the signed-in user, or null if the session token is no longer valid. */

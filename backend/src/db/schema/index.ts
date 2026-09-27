@@ -1,3 +1,4 @@
+import type { PhoneOtpCodeRow, PhoneOtpSendRow } from './auth.js';
 import type { ChatMessageRow, ChatRoomRow } from './chat.js';
 import type {
   GroupExpenseRow,
@@ -15,6 +16,7 @@ import type {
 } from './trips.js';
 import type { TravelProfileRow, TripPreferencesRow, UserRow } from './users.js';
 
+export * from './auth.js';
 export * from './chat.js';
 export * from './common.js';
 export * from './enums.js';
@@ -39,6 +41,8 @@ export type Tables = {
   chat_messages: ChatMessageRow;
   group_expenses: GroupExpenseRow;
   group_expense_splits: GroupExpenseSplitRow;
+  phone_otp_codes: PhoneOtpCodeRow;
+  phone_otp_sends: PhoneOtpSendRow;
 };
 
 export type TableName = keyof Tables;

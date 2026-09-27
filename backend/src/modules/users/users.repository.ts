@@ -2,9 +2,9 @@ import { pool, type Queryable } from '../../db/pool.js';
 import type { UserRow } from '../../db/schema/index.js';
 
 /** The part of a user that is safe to send to clients. */
-export type PublicUser = Pick<UserRow, 'id' | 'email' | 'name' | 'picture'>;
+export type PublicUser = Pick<UserRow, 'id' | 'email' | 'phone' | 'name' | 'picture'>;
 
-const PUBLIC_USER_COLUMNS = 'id, email, name, picture';
+const PUBLIC_USER_COLUMNS = 'id, email, phone, name, picture';
 
 export type GoogleProfile = {
   googleId: string;
@@ -31,6 +31,18 @@ export async function upsertGoogleUser(
            last_login_at = now()
      RETURNING ${PUBLIC_USER_COLUMNS}`,
     [profile.googleId, profile.email, profile.name, profile.picture],
+  );
+  return rows[0];
+}
+
+/** Creates the user on first phone sign-in; `phone` must already be normalized to E.164. */
+export async function upsertPhoneUser(phone: string, db: Queryable = pool): Promise<PublicUser> {
+  const { rows } = await db.query<PublicUser>(
+    `INSERT INTO users (phone)
+     VALUES ($1)
+     ON CONFLICT (phone) DO UPDATE SET last_login_at = now()
+     RETURNING ${PUBLIC_USER_COLUMNS}`,
+    [phone],
   );
   return rows[0];
 }

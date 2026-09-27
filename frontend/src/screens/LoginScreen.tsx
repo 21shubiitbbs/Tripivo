@@ -12,16 +12,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import { signInWithGoogle, type Session } from '../lib/api';
+import type { Session } from '../lib/api';
 import { useGoogleSignIn } from '../lib/googleSignIn';
 
 type LoginScreenProps = {
   onSignedIn: (session: Session) => void;
-  /** Apple and phone sign-in aren't wired up yet, so they skip authentication. */
-  onContinue: (provider: 'apple' | 'phone') => void;
+  onContinueWithPhone: () => void;
+  /** Apple sign-in isn't wired up yet, so it skips authentication. */
+  onContinueWithApple: () => void;
 };
 
-export default function LoginScreen({ onSignedIn, onContinue }: LoginScreenProps) {
+export default function LoginScreen({
+  onSignedIn,
+  onContinueWithPhone,
+  onContinueWithApple,
+}: LoginScreenProps) {
   const googleSignIn = useGoogleSignIn();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,10 +36,8 @@ export default function LoginScreen({ onSignedIn, onContinue }: LoginScreenProps
     setIsSigningIn(true);
 
     try {
-      const idToken = await googleSignIn.signIn();
-      if (!idToken) return;
-
-      onSignedIn(await signInWithGoogle(idToken));
+      const session = await googleSignIn.signIn();
+      if (session) onSignedIn(session);
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : 'Google sign-in failed.');
     } finally {
@@ -83,12 +86,12 @@ export default function LoginScreen({ onSignedIn, onContinue }: LoginScreenProps
           <AuthButton
             icon={<Ionicons color="#FFFFFF" name="logo-apple" size={22} />}
             label="Continue with Apple"
-            onPress={() => onContinue('apple')}
+            onPress={onContinueWithApple}
           />
           <AuthButton
             icon={<Ionicons color="#FFFFFF" name="call" size={19} />}
             label="Continue with Phone"
-            onPress={() => onContinue('phone')}
+            onPress={onContinueWithPhone}
           />
 
           {error ? (

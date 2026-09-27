@@ -16,6 +16,7 @@ import { getApiHealth, getCurrentUser, type Session } from './src/lib/api';
 import { signOutOfGoogle } from './src/lib/googleSignIn';
 import { clearSession, loadSession, saveSession } from './src/lib/session';
 import LoginScreen from './src/screens/LoginScreen';
+import PhoneLoginScreen from './src/screens/PhoneLoginScreen';
 
 type Trip = {
   id: number;
@@ -28,7 +29,7 @@ type ApiStatus = 'checking' | 'online' | 'offline';
 type AuthState =
   | { status: 'restoring' }
   | { status: 'signedOut' }
-  // `session` is null for providers that aren't wired to the backend yet (Apple, phone).
+  // `session` is null for providers that aren't wired to the backend yet (Apple).
   | { status: 'signedIn'; session: Session | null };
 
 export default function App() {
@@ -39,6 +40,7 @@ export default function App() {
   const [destination, setDestination] = useState('');
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
   const [auth, setAuth] = useState<AuthState>({ status: 'restoring' });
+  const [isPhoneLoginOpen, setIsPhoneLoginOpen] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -100,6 +102,7 @@ export default function App() {
 
   async function handleSignedIn(session: Session) {
     await saveSession(session);
+    setIsPhoneLoginOpen(false);
     setAuth({ status: 'signedIn', session });
   }
 
@@ -115,10 +118,18 @@ export default function App() {
   if (auth.status === 'signedOut') {
     return (
       <SafeAreaProvider>
-        <LoginScreen
-          onContinue={() => setAuth({ status: 'signedIn', session: null })}
-          onSignedIn={handleSignedIn}
-        />
+        {isPhoneLoginOpen ? (
+          <PhoneLoginScreen
+            onBack={() => setIsPhoneLoginOpen(false)}
+            onSignedIn={handleSignedIn}
+          />
+        ) : (
+          <LoginScreen
+            onContinueWithApple={() => setAuth({ status: 'signedIn', session: null })}
+            onContinueWithPhone={() => setIsPhoneLoginOpen(true)}
+            onSignedIn={handleSignedIn}
+          />
+        )}
       </SafeAreaProvider>
     );
   }
@@ -204,7 +215,7 @@ export default function App() {
         <View style={styles.accountRow}>
           {auth.session ? (
             <Text numberOfLines={1} style={styles.accountEmail}>
-              {auth.session.user.email}
+              {auth.session.user.email ?? auth.session.user.phone}
             </Text>
           ) : null}
           <Pressable accessibilityRole="button" onPress={signOut} style={styles.signOutButton}>

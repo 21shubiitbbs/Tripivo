@@ -3,6 +3,7 @@ import { uuidParam } from '../../shared/http/validate.js';
 import { requireAuth } from '../auth/auth.middleware.js';
 import {
   addReview,
+  cancelTripDeletion,
   createTrip,
   decideJoinRequest,
   discoverTrips,
@@ -12,8 +13,10 @@ import {
   joinTrip,
   leaveTrip,
   parseTripSearch,
+  requestTripDeletion,
   setSaved,
   updateItinerary,
+  voteOnTripDeletion,
 } from './trips.service.js';
 
 export const tripsRouter = Router();
@@ -41,6 +44,35 @@ tripsRouter.post('/', async (request, response) => {
 tripsRouter.get('/:id', async (request, response) => {
   const tripId = uuidParam(request.params.id, 'Trip');
   response.json({ trip: await getTripDetail(response.locals.userId, tripId) });
+});
+
+/**
+ * Host only. Deletes the trip when nobody else has joined; otherwise asks every traveler to
+ * approve deleting it. `{ reason? }` → `{ deleted, deletionRequest }`.
+ */
+tripsRouter.delete('/:id', async (request, response) => {
+  const tripId = uuidParam(request.params.id, 'Trip');
+  response.json(await requestTripDeletion(response.locals.userId, tripId, request.body ?? {}));
+});
+
+/** Travelers vote on the host's deletion request → `{ deleted }`. */
+tripsRouter.post('/:id/deletion/:decision', async (request, response) => {
+  const tripId = uuidParam(request.params.id, 'Trip');
+  const decision = { approve: 'approved', reject: 'rejected' }[request.params.decision] as
+    | 'approved'
+    | 'rejected'
+    | undefined;
+  if (!decision) {
+    response.status(404).json({ error: 'Not found' });
+    return;
+  }
+  response.json(await voteOnTripDeletion(response.locals.userId, tripId, decision));
+});
+
+/** Host only: withdraw a pending deletion request. */
+tripsRouter.delete('/:id/deletion', async (request, response) => {
+  await cancelTripDeletion(response.locals.userId, uuidParam(request.params.id, 'Trip'));
+  response.status(204).end();
 });
 
 /** Host only: replace the itinerary with `{ days: [{ title?, date?, activities: [{ time?, title, notes?, image? }] }] }`. */

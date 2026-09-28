@@ -1,5 +1,12 @@
 import type { CreatedAt, CurrencyCode, DateString, Money, Timestamps, Uuid } from './common.js';
-import type { ExpenseCategory, JoinMethod, JoinRequestStatus, TripStatus } from './enums.js';
+import type {
+  ExpenseCategory,
+  JoinMethod,
+  JoinRequestStatus,
+  TripDeletionStatus,
+  TripDeletionVote,
+  TripStatus,
+} from './enums.js';
 
 export type TripRow = Timestamps & {
   id: Uuid;
@@ -74,6 +81,23 @@ export type JoinRequestRow = CreatedAt & {
   status: JoinRequestStatus;
   reviewed_by: Uuid | null;
   reviewed_at: Date | null;
+};
+
+/** The host asking to delete a trip other travelers have joined; they all have to approve. */
+export type TripDeletionRequestRow = CreatedAt & {
+  id: Uuid;
+  trip_id: Uuid;
+  requested_by: Uuid;
+  reason: string | null;
+  status: TripDeletionStatus;
+  decided_at: Date | null;
+};
+
+/** Primary key is (request_id, user_id). */
+export type TripDeletionVoteRow = CreatedAt & {
+  request_id: Uuid;
+  user_id: Uuid;
+  decision: TripDeletionVote;
 };
 
 /** One entry of `itinerary_days.activities` (jsonb array, in display order). */

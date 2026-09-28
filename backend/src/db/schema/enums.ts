@@ -21,6 +21,12 @@ export type TripStatus = (typeof TRIP_STATUSES)[number];
 export const JOIN_REQUEST_STATUSES = ['pending', 'accepted', 'rejected', 'cancelled'] as const;
 export type JoinRequestStatus = (typeof JOIN_REQUEST_STATUSES)[number];
 
+export const TRIP_DELETION_STATUSES = ['pending', 'approved', 'rejected', 'cancelled'] as const;
+export type TripDeletionStatus = (typeof TRIP_DELETION_STATUSES)[number];
+
+export const TRIP_DELETION_VOTES = ['approved', 'rejected'] as const;
+export type TripDeletionVote = (typeof TRIP_DELETION_VOTES)[number];
+
 export const EXPENSE_CATEGORIES = [
   'transport',
   'accommodation',

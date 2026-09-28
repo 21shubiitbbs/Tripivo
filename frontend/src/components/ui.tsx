@@ -251,7 +251,7 @@ export function SectionTitle({
 type ButtonProps = {
   label: string;
   onPress?: () => void;
-  variant?: 'primary' | 'outline' | 'soft' | 'ghost' | 'light';
+  variant?: 'primary' | 'outline' | 'soft' | 'ghost' | 'light' | 'danger';
   icon?: ReactNode;
   loading?: boolean;
   disabled?: boolean;
@@ -277,6 +277,7 @@ export function Button({
     soft: colors.primary,
     ghost: colors.primary,
     light: colors.primary,
+    danger: colors.danger,
   }[variant];
 
   return (
@@ -1004,6 +1005,7 @@ const useStyles = makeStyles((c) => ({
   button_soft: { backgroundColor: c.primarySoft },
   button_ghost: { backgroundColor: 'transparent' },
   button_light: { backgroundColor: '#FFFFFF' },
+  button_danger: { backgroundColor: c.dangerSoft },
   buttonText: { fontSize: 16, fontWeight: '700' },
   buttonTextCompact: { fontSize: 14 },
 

@@ -422,6 +422,18 @@ export type TripDetail = TripSummary & {
   chatRoomId: string | null;
   canReview: boolean;
   pendingRequestCount: number;
+  /** The host's pending request to delete the trip; only shown to people on the trip. */
+  deletionRequest: TripDeletionRequest | null;
+};
+
+export type TripDeletionRequest = {
+  id: string;
+  reason: string | null;
+  requestedAt: string;
+  approvals: number;
+  /** Travelers (other than the host) who all have to approve. */
+  required: number;
+  myVote: 'approved' | 'rejected' | null;
 };
 
 export type TripCategory = 'trekking' | 'beaches' | 'nightlife' | 'budget' | 'weekend';
@@ -496,6 +508,27 @@ export function joinTrip(tripId: string, method: JoinMethod, message?: string) {
 /** Leaves the trip, or withdraws a pending request. */
 export function leaveTrip(tripId: string) {
   return request<void>(`/trips/${tripId}/membership`, { method: 'DELETE' });
+}
+
+/**
+ * Host: deletes the trip when nobody else has joined, otherwise asks every traveler to approve.
+ * `deleted` says which happened.
+ */
+export function deleteTrip(tripId: string, reason?: string) {
+  return request<{ deleted: boolean; deletionRequest: TripDeletionRequest | null }>(`/trips/${tripId}`, {
+    method: 'DELETE',
+    body: { reason },
+  });
+}
+
+/** Traveler: approve or decline the host's request to delete the trip. */
+export function voteOnTripDeletion(tripId: string, decision: 'approve' | 'reject') {
+  return request<{ deleted: boolean }>(`/trips/${tripId}/deletion/${decision}`, { method: 'POST' });
+}
+
+/** Host: withdraw a pending deletion request. */
+export function cancelTripDeletion(tripId: string) {
+  return request<void>(`/trips/${tripId}/deletion`, { method: 'DELETE' });
 }
 
 export type JoinRequest = { id: string; message: string | null; createdAt: string; user: UserSummary };

@@ -1,5 +1,6 @@
 import { withTransaction } from '../../db/transaction.js';
-import { JOIN_METHODS, type ItineraryActivity } from '../../db/schema/index.js';
+import type { Queryable } from '../../db/pool.js';
+import { JOIN_METHODS, type ItineraryActivity, type TripDeletionVote } from '../../db/schema/index.js';
 import { HttpError } from '../../shared/http/errors.js';
 import {
   oneOf,
@@ -18,17 +19,22 @@ import { findPublicUserById } from '../users/users.repository.js';
 import {
   addMember,
   cancelPendingRequest,
+  closeDeletionRequest,
   countPendingRequests,
   decideRequest,
+  deleteTrip,
+  findPendingDeletion,
   findPendingRequest,
   findTripExtras,
   findTripSummary,
   hasReviewed,
+  insertDeletionRequest,
   insertJoinRequest,
   insertSystemMessage,
   insertTrip,
   listItinerary,
   listMyTrips,
+  listOtherMemberIds,
   listPendingRequests,
   listReviews,
   listTravelers,
@@ -39,8 +45,10 @@ import {
   saveTrip,
   searchTrips,
   unsaveTrip,
+  upsertDeletionVote,
   upsertReview,
   type ItineraryDay,
+  type PendingDeletion,
   type TripSearch,
   type TripSummaryRecord,
 } from './trips.repository.js';
@@ -132,6 +140,7 @@ export async function getTripDetail(viewerId: string, tripId: string) {
   ]);
 
   const isOnTrip = trip.membership === 'host' || trip.membership === 'member';
+  const pendingDeletion = isOnTrip ? await findPendingDeletion(tripId) : null;
   const canReview =
     trip.membership === 'member' && trip.phase === 'completed' && !(await hasReviewed(tripId, viewerId));
 
@@ -147,6 +156,10 @@ export async function getTripDetail(viewerId: string, tripId: string) {
     chatRoomId: isOnTrip ? (extras?.chatRoomId ?? null) : null,
     canReview,
     pendingRequestCount: trip.membership === 'host' ? await countPendingRequests(tripId) : 0,
+    // Only people on the trip see (and vote on) a pending deletion.
+    deletionRequest: pendingDeletion
+      ? deletionView(pendingDeletion, await listOtherMemberIds(tripId, trip.host.id), viewerId)
+      : null,
   };
 }
 
@@ -254,6 +267,7 @@ export async function joinTrip(viewerId: string, tripId: string, body: Record<st
   const trip = await requireTrip(viewerId, tripId);
   if (trip.membership) throw HttpError.badRequest('You’re already part of this trip');
   if (trip.phase === 'completed') throw HttpError.badRequest('This trip has already ended');
+  await refuseWhileDeleting(tripId);
 
   const message = optionalString(body.message, 'message', 1000) ?? null;
   const name = await displayName(viewerId);
@@ -300,9 +314,12 @@ export async function leaveTrip(viewerId: string, tripId: string) {
   if (trip.membership === 'member') {
     const name = await displayName(viewerId);
     await withTransaction(async (client) => {
+      await lockTrip(tripId, client);
       await removeMember(tripId, viewerId, client);
       const extras = await findTripExtras(tripId, client);
       if (extras?.chatRoomId) await insertSystemMessage(extras.chatRoomId, `${name} left the trip`, client);
+      // If everyone still on the trip had already agreed to delete it, this completes the deletion.
+      await settleDeletion(tripId, trip.host.id, trip.title ?? trip.destination, client);
     });
   }
 }
@@ -328,6 +345,7 @@ export async function decideJoinRequest(
     if (!request) throw HttpError.notFound('Join request not found');
 
     if (decision === 'accepted') {
+      await refuseWhileDeleting(tripId, client);
       const current = await findTripSummary(viewerId, tripId, client);
       if (current && current.memberCount >= current.maxMembers) throw HttpError.badRequest('This trip is full');
       await addMember(tripId, request.user_id, 'member', client);
@@ -350,6 +368,161 @@ export async function decideJoinRequest(
       },
       client,
     );
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deleting
+//
+// A host alone on their trip deletes it straight away. Once other travelers have joined, deleting
+// becomes a request that every one of them has to approve; a single "no" ends the request.
+
+export type DeletionRequestView = {
+  id: string;
+  reason: string | null;
+  requestedAt: Date;
+  approvals: number;
+  /** Travelers (other than the host) who have to approve. */
+  required: number;
+  myVote: TripDeletionVote | null;
+};
+
+function deletionView(pending: PendingDeletion, memberIds: string[], viewerId: string): DeletionRequestView {
+  const approved = new Set(pending.votes.filter((vote) => vote.decision === 'approved').map((vote) => vote.userId));
+  return {
+    id: pending.id,
+    reason: pending.reason,
+    requestedAt: pending.createdAt,
+    approvals: memberIds.filter((id) => approved.has(id)).length,
+    required: memberIds.length,
+    myVote: pending.votes.find((vote) => vote.userId === viewerId)?.decision ?? null,
+  };
+}
+
+async function refuseWhileDeleting(tripId: string, db?: Queryable) {
+  if (await findPendingDeletion(tripId, db)) {
+    throw HttpError.badRequest('This trip is being deleted', { code: 'trip_deletion_pending' });
+  }
+}
+
+/**
+ * Deletes the trip if it has a pending deletion request that every remaining traveler approved.
+ * Call inside a transaction holding the trip lock. Resolves with whether the trip was deleted.
+ */
+async function settleDeletion(tripId: string, hostId: string, tripTitle: string, db: Queryable) {
+  const pending = await findPendingDeletion(tripId, db);
+  if (!pending) return false;
+  const memberIds = await listOtherMemberIds(tripId, hostId, db);
+  const approved = new Set(pending.votes.filter((vote) => vote.decision === 'approved').map((vote) => vote.userId));
+  if (!memberIds.every((id) => approved.has(id))) return false;
+
+  await deleteTrip(tripId, db);
+  // Without trip_id: notifications about the trip are deleted along with it.
+  for (const userId of [hostId, ...memberIds]) {
+    await insertNotification({ userId, kind: 'trips', body: `${tripTitle} was deleted` }, db);
+  }
+  return true;
+}
+
+export type DeleteTripResult = { deleted: boolean; deletionRequest: DeletionRequestView | null };
+
+/** Host: deletes the trip, or asks the other travelers to approve deleting it. `{ reason? }`. */
+export async function requestTripDeletion(
+  viewerId: string,
+  tripId: string,
+  body: Record<string, unknown>,
+): Promise<DeleteTripResult> {
+  const trip = await requireHost(viewerId, tripId);
+  const reason = optionalString(body.reason, 'reason', 500) ?? null;
+  const tripTitle = trip.title ?? trip.destination;
+  const hostName = await displayName(viewerId);
+
+  return withTransaction(async (client) => {
+    await lockTrip(tripId, client);
+    if (await findPendingDeletion(tripId, client)) {
+      throw HttpError.badRequest('You’ve already asked your travelers to delete this trip', {
+        code: 'trip_deletion_pending',
+      });
+    }
+
+    const memberIds = await listOtherMemberIds(tripId, viewerId, client);
+    if (!memberIds.length) {
+      await deleteTrip(tripId, client);
+      return { deleted: true, deletionRequest: null };
+    }
+
+    await insertDeletionRequest(tripId, viewerId, reason, client);
+    const extras = await findTripExtras(tripId, client);
+    if (extras?.chatRoomId) {
+      await insertSystemMessage(
+        extras.chatRoomId,
+        `${hostName} asked to delete the trip. Everyone has to approve it on the trip page.`,
+        client,
+      );
+    }
+    for (const userId of memberIds) {
+      await insertNotification(
+        {
+          userId,
+          kind: 'trips',
+          body: `${hostName} wants to delete ${tripTitle}. Approve or decline on the trip page.`,
+          actorId: viewerId,
+          tripId,
+        },
+        client,
+      );
+    }
+    const pending = await findPendingDeletion(tripId, client);
+    return { deleted: false, deletionRequest: pending && deletionView(pending, memberIds, viewerId) };
+  });
+}
+
+/** Traveler: approve or decline the host's request to delete the trip. */
+export async function voteOnTripDeletion(
+  viewerId: string,
+  tripId: string,
+  decision: TripDeletionVote,
+): Promise<{ deleted: boolean }> {
+  const trip = await requireTrip(viewerId, tripId);
+  if (trip.membership !== 'member') throw HttpError.forbidden('Only travelers on this trip can vote on deleting it');
+  const tripTitle = trip.title ?? trip.destination;
+  const name = await displayName(viewerId);
+
+  return withTransaction(async (client) => {
+    await lockTrip(tripId, client);
+    const pending = await findPendingDeletion(tripId, client);
+    if (!pending) throw HttpError.notFound('There is no pending request to delete this trip');
+
+    await upsertDeletionVote(pending.id, viewerId, decision, client);
+    if (decision === 'rejected') {
+      await closeDeletionRequest(pending.id, 'rejected', client);
+      const extras = await findTripExtras(tripId, client);
+      if (extras?.chatRoomId) {
+        await insertSystemMessage(extras.chatRoomId, `${name} declined deleting the trip, so it stays`, client);
+      }
+      await insertNotification(
+        { userId: trip.host.id, kind: 'trips', body: `${name} declined deleting ${tripTitle}`, actorId: viewerId, tripId },
+        client,
+      );
+      return { deleted: false };
+    }
+    return { deleted: await settleDeletion(tripId, trip.host.id, tripTitle, client) };
+  });
+}
+
+/** Host: withdraw a pending deletion request. */
+export async function cancelTripDeletion(viewerId: string, tripId: string) {
+  await requireHost(viewerId, tripId);
+  const hostName = await displayName(viewerId);
+  await withTransaction(async (client) => {
+    await lockTrip(tripId, client);
+    const pending = await findPendingDeletion(tripId, client);
+    if (!pending) return;
+    await closeDeletionRequest(pending.id, 'cancelled', client);
+    const extras = await findTripExtras(tripId, client);
+    if (extras?.chatRoomId) {
+      await insertSystemMessage(extras.chatRoomId, `${hostName} withdrew the request to delete the trip`, client);
+    }
   });
 }
 

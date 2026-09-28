@@ -23,6 +23,8 @@ import type {
   JoinRequestRow,
   SavedTripRow,
   TripPhotoRow,
+  TripDeletionRequestRow,
+  TripDeletionVoteRow,
   TripReviewRow,
   TripRow,
 } from './trips.js';
@@ -71,6 +73,8 @@ export type Tables = {
   auth_events: AuthEventRow;
   places: PlaceRow;
   place_search_cache: PlaceSearchCacheRow;
+  trip_deletion_requests: TripDeletionRequestRow;
+  trip_deletion_votes: TripDeletionVoteRow;
 };
 
 export type TableName = keyof Tables;

@@ -1,5 +1,5 @@
 import { pool, type Queryable } from '../../db/pool.js';
-import type { ItineraryActivity, JoinMethod } from '../../db/schema/index.js';
+import type { ItineraryActivity, JoinMethod, TripDeletionVote } from '../../db/schema/index.js';
 import { userSummaryJoin, userSummaryJson, type UserSummary } from '../users/users.repository.js';
 
 export type Membership = 'host' | 'member' | 'pending' | null;
@@ -489,4 +489,64 @@ export async function unsaveTrip(userId: string, tripId: string, db: Queryable =
 
 export async function insertSystemMessage(roomId: string, body: string, db: Queryable) {
   await db.query(`INSERT INTO chat_messages (room_id, message_type, body) VALUES ($1, 'system', $2)`, [roomId, body]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deleting
+
+/** User ids of the trip's active travelers other than the host. */
+export async function listOtherMemberIds(tripId: string, hostId: string, db: Queryable = pool): Promise<string[]> {
+  const { rows } = await db.query<{ user_id: string }>(
+    `SELECT gm.user_id FROM group_members gm JOIN groups g ON g.id = gm.group_id
+      WHERE g.trip_id = $1 AND gm.status = 'active' AND gm.user_id <> $2`,
+    [tripId, hostId],
+  );
+  return rows.map((row) => row.user_id);
+}
+
+/** Groups, chats, requests, reviews and notifications about the trip go with it (ON DELETE CASCADE). */
+export async function deleteTrip(tripId: string, db: Queryable) {
+  await db.query('DELETE FROM trips WHERE id = $1', [tripId]);
+}
+
+export type DeletionVote = { userId: string; decision: TripDeletionVote };
+
+export type PendingDeletion = {
+  id: string;
+  requestedBy: string;
+  reason: string | null;
+  createdAt: Date;
+  votes: DeletionVote[];
+};
+
+export async function findPendingDeletion(tripId: string, db: Queryable = pool): Promise<PendingDeletion | null> {
+  const { rows } = await db.query<PendingDeletion>(
+    `SELECT r.id, r.requested_by AS "requestedBy", r.reason, r.created_at AS "createdAt",
+            COALESCE((SELECT json_agg(json_build_object('userId', v.user_id, 'decision', v.decision))
+                        FROM trip_deletion_votes v WHERE v.request_id = r.id), '[]') AS votes
+       FROM trip_deletion_requests r
+      WHERE r.trip_id = $1 AND r.status = 'pending'`,
+    [tripId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function insertDeletionRequest(tripId: string, hostId: string, reason: string | null, db: Queryable) {
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO trip_deletion_requests (trip_id, requested_by, reason) VALUES ($1, $2, $3) RETURNING id`,
+    [tripId, hostId, reason],
+  );
+  return rows[0].id;
+}
+
+export async function upsertDeletionVote(requestId: string, userId: string, decision: TripDeletionVote, db: Queryable) {
+  await db.query(
+    `INSERT INTO trip_deletion_votes (request_id, user_id, decision) VALUES ($1, $2, $3)
+     ON CONFLICT (request_id, user_id) DO UPDATE SET decision = EXCLUDED.decision, created_at = now()`,
+    [requestId, userId, decision],
+  );
+}
+
+export async function closeDeletionRequest(requestId: string, status: 'rejected' | 'cancelled', db: Queryable) {
+  await db.query(`UPDATE trip_deletion_requests SET status = $2, decided_at = now() WHERE id = $1`, [requestId, status]);
 }

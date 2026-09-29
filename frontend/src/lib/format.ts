@@ -6,6 +6,15 @@ export function formatPrice(amount: number) {
   return `₹${Math.round(amount).toLocaleString('en-IN')}`;
 }
 
+/** An amount in minor units (paise), e.g. 125050 → "₹1,250.50"; whole amounts drop the ".00". */
+export function formatMoney(minor: number, currency = 'INR') {
+  const major = minor / 100;
+  const decimals = minor % 100 === 0 ? 0 : 2;
+  const symbol = currency === 'INR' ? '₹' : `${currency} `;
+  const sign = major < 0 ? '-' : '';
+  return `${sign}${symbol}${Math.abs(major).toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: 2 })}`;
+}
+
 /** "₹8,500", "₹5,000 - ₹10,000", "Under ₹5,000" or "₹20,000+". */
 export function formatBudget(trip: Pick<TripSummary, 'budgetMin' | 'budgetMax'>) {
   const { budgetMin: min, budgetMax: max } = trip;

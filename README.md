@@ -9,9 +9,12 @@ Tripivo is a React Native app built with Expo and a separate Express API.
 
 ## Start the backend
 
+PostgreSQL is required and Redis is recommended. `docker compose up -d` in the repo root starts both (add `--profile storage` for MinIO, an S3-compatible store for uploads).
+
 ```sh
 cd backend
 npm install
+cp .env.example .env   # first time only
 npm run dev
 ```
 

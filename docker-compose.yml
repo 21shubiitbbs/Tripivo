@@ -1,0 +1,65 @@
+# Local infrastructure for the API: PostgreSQL, Redis and MinIO (S3-compatible storage).
+#
+#   docker compose up -d                  # Postgres + Redis
+#   docker compose --profile storage up -d  # also MinIO, for STORAGE_PROVIDER=s3
+#
+# Matching settings for backend/.env are in backend/.env.example.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tripivo
+      POSTGRES_PASSWORD: tripivo
+      POSTGRES_DB: tripivo
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tripivo']
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    profiles: ['storage']
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: tripivo
+      MINIO_ROOT_PASSWORD: tripivo-secret
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+
+  # Creates the "tripivo" bucket with public read access, so uploaded photos can be shown.
+  minio-setup:
+    image: minio/mc:latest
+    profiles: ['storage']
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 tripivo tripivo-secret; do sleep 1; done;
+      mc mb --ignore-existing local/tripivo;
+      mc anonymous set download local/tripivo;
+      "
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

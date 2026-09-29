@@ -1,7 +1,7 @@
 // Fixed lists the app ships with: interest categories, form options and a few illustration
 // photos. Everything else (trips, people, chats) comes from the API in src/lib/api.ts.
 
-import type { BudgetKey, GroupSizeKey } from '../lib/api';
+import type { BudgetKey, ExpenseCategory, GroupSizeKey } from '../lib/api';
 
 const unsplash = (id: string, width = 800) =>
   `https://images.unsplash.com/photo-${id}?w=${width}&q=70&auto=format&fit=crop`;
@@ -94,3 +94,13 @@ export const BUDGETS: { key: BudgetKey; label: string }[] = [
 export function isInterestKey(key: string): key is InterestKey {
   return key in interests;
 }
+
+/** Shared-expense categories, with a MaterialCommunityIcons glyph each. */
+export const EXPENSE_CATEGORIES: { key: ExpenseCategory; label: string; icon: string }[] = [
+  { key: 'food', label: 'Food', icon: 'silverware-fork-knife' },
+  { key: 'accommodation', label: 'Stay', icon: 'bed-outline' },
+  { key: 'transport', label: 'Transport', icon: 'car-outline' },
+  { key: 'activities', label: 'Activities', icon: 'ticket-outline' },
+  { key: 'shopping', label: 'Shopping', icon: 'shopping-outline' },
+  { key: 'other', label: 'Other', icon: 'cash-multiple' },
+];

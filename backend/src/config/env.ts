@@ -127,6 +127,50 @@ function parsePlacesConfig() {
   };
 }
 
+const STORAGE_PROVIDERS = ['local', 's3'] as const;
+export type StorageProviderName = (typeof STORAGE_PROVIDERS)[number];
+
+function parseStorageConfig() {
+  const provider = optional('STORAGE_PROVIDER') ?? 'local';
+  if (!(STORAGE_PROVIDERS as readonly string[]).includes(provider)) {
+    throw new Error(`STORAGE_PROVIDER must be one of ${STORAGE_PROVIDERS.join(', ')}, got "${provider}".`);
+  }
+  if (provider !== 's3') return { provider: provider as StorageProviderName, s3: undefined };
+  const hint = 'It is required when STORAGE_PROVIDER=s3.';
+  return {
+    provider: provider as StorageProviderName,
+    // Any S3-compatible store: AWS S3, Cloudflare R2, MinIO (set S3_ENDPOINT for the last two).
+    s3: {
+      bucket: required('S3_BUCKET', hint),
+      region: optional('S3_REGION') ?? 'auto',
+      endpoint: optional('S3_ENDPOINT'),
+      accessKeyId: required('S3_ACCESS_KEY_ID', hint),
+      secretAccessKey: required('S3_SECRET_ACCESS_KEY', hint),
+      // Where the bucket's objects are publicly readable, e.g. a CDN or https://<bucket>.s3.<region>.amazonaws.com.
+      publicUrl: required('S3_PUBLIC_URL', hint).replace(/\/+$/, ''),
+      // MinIO needs path-style URLs (http://host:9000/bucket/key).
+      forcePathStyle: optional('S3_FORCE_PATH_STYLE') === 'true',
+    },
+  };
+}
+
+function parseRedisConfig(isProduction: boolean) {
+  const url = optional('REDIS_URL');
+  // Behind a load balancer, in-memory rate limits and typing indicators silently break, so
+  // production must have Redis.
+  if (!url && isProduction) {
+    throw new Error('REDIS_URL is required in production (e.g. rediss://default:<password>@<host>:6379).');
+  }
+  if (url && !/^rediss?:\/\//.test(url)) {
+    throw new Error('REDIS_URL must start with redis:// or rediss:// (TLS).');
+  }
+  const keyPrefix = optional('REDIS_KEY_PREFIX') ?? 'tripivo:';
+  if (!/^[\w:.-]{1,40}$/.test(keyPrefix)) {
+    throw new Error(`REDIS_KEY_PREFIX may only contain letters, digits and ":._-", got "${keyPrefix}".`);
+  }
+  return { url, keyPrefix };
+}
+
 const isProduction = process.env.NODE_ENV === 'production';
 const otpProvider = parseOtpProvider(isProduction);
 const sessionSecret = process.env.SESSION_SECRET?.trim();
@@ -173,6 +217,16 @@ export const env = {
   email: parseEmailConfig(isProduction),
   devMasterOtp: parseDevMasterOtp(isProduction),
   places: parsePlacesConfig(),
+  // Cache, rate-limit counters and cross-instance real-time events. Without a URL they are kept
+  // in this process's memory, which is fine for one API instance but not behind a load balancer
+  // (and refused in production). The prefix separates environments sharing one Redis server.
+  redis: parseRedisConfig(isProduction),
+  storage: parseStorageConfig(),
+  // Requests per minute per client IP across the whole API (0 disables the limit).
+  apiRateLimitPerMinute: parseNonNegativeInt('API_RATE_LIMIT_PER_MINUTE', 300),
+  logRequests: optional('LOG_REQUESTS') !== 'false',
+  // Optional: required only if "enhanced push security" is enabled for the Expo project.
+  expoAccessToken: optional('EXPO_ACCESS_TOKEN'),
   phoneAuth: {
     provider: otpProvider,
     twilio: parseTwilioConfig(otpProvider),

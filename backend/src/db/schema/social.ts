@@ -1,5 +1,5 @@
 import type { CreatedAt, Uuid } from './common.js';
-import type { NotificationKind, ReportStatus, ReportTargetType } from './enums.js';
+import type { NotificationKind, PushPlatform, ReportStatus, ReportTargetType } from './enums.js';
 
 export type NotificationRow = CreatedAt & {
   id: Uuid;
@@ -10,6 +10,18 @@ export type NotificationRow = CreatedAt & {
   trip_id: Uuid | null;
   room_id: Uuid | null;
   read_at: Date | null;
+  /** Set once handed to the push service (or skipped). */
+  pushed_at: Date | null;
+};
+
+/** Primary key is `token` (an Expo push token); one row per device. */
+export type PushTokenRow = CreatedAt & {
+  token: string;
+  user_id: Uuid;
+  /** Pushes stop once this session is revoked or expires. */
+  session_id: Uuid;
+  platform: PushPlatform;
+  last_seen_at: Date;
 };
 
 /** Primary key is (follower_id, followee_id). */

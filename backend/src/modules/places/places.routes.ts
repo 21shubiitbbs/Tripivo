@@ -1,6 +1,7 @@
-import { Router, type RequestHandler } from 'express';
-import { HttpError } from '../../shared/http/errors.js';
+import { Router } from 'express';
+import { rateLimit } from '../../shared/http/rate-limit.js';
 import { optionalInt, optionalNumber } from '../../shared/http/validate.js';
+import { cached } from '../../shared/redis.js';
 import { requireAuth } from '../auth/auth.middleware.js';
 import { autocompletePlaces, getPlace, getPopularPlaces, getTrendingPlaces } from './places.service.js';
 
@@ -8,20 +9,15 @@ export const placesRouter = Router();
 
 // Search-as-you-type sends a request per pause in typing; cap it per client so one device can't
 // burn through the provider's fair-use allowance.
-const WINDOW_MS = 10_000;
-const MAX_PER_WINDOW = 30;
-const recent = new Map<string, number[]>();
+const limitAutocomplete = rateLimit({
+  name: 'places-autocomplete',
+  max: 30,
+  windowSeconds: 10,
+  message: 'Slow down a little and try again.',
+});
 
-const limitAutocomplete: RequestHandler = (request, _response, next) => {
-  const key = request.ip ?? 'unknown';
-  const now = Date.now();
-  const hits = (recent.get(key) ?? []).filter((time) => now - time < WINDOW_MS);
-  if (hits.length >= MAX_PER_WINDOW) throw HttpError.tooManyRequests('Slow down a little and try again.', { code: 'rate_limited' });
-  hits.push(now);
-  recent.set(key, hits);
-  if (recent.size > 5000) recent.clear();
-  next();
-};
+// Popular and trending are the same for everyone and change slowly.
+const RANKING_CACHE_SECONDS = 300;
 
 /** `?q=&scope=destination|city&lat=&lng=` → `{ places }`, ranked with nearby places first when lat/lng are given. */
 placesRouter.get('/autocomplete', requireAuth, limitAutocomplete, async (request, response) => {
@@ -34,12 +30,14 @@ placesRouter.get('/autocomplete', requireAuth, limitAutocomplete, async (request
 
 /** Destinations with the most upcoming trips. */
 placesRouter.get('/popular', async (request, response) => {
-  response.json({ places: await getPopularPlaces(optionalInt(request.query.limit, 'limit', 1, 30) ?? 10) });
+  const limit = optionalInt(request.query.limit, 'limit', 1, 30) ?? 10;
+  response.json({ places: await cached(`places:popular:${limit}`, RANKING_CACHE_SECONDS, () => getPopularPlaces(limit)) });
 });
 
 /** Destinations with the most activity in the last two weeks. */
 placesRouter.get('/trending', async (request, response) => {
-  response.json({ places: await getTrendingPlaces(optionalInt(request.query.limit, 'limit', 1, 30) ?? 6) });
+  const limit = optionalInt(request.query.limit, 'limit', 1, 30) ?? 6;
+  response.json({ places: await cached(`places:trending:${limit}`, RANKING_CACHE_SECONDS, () => getTrendingPlaces(limit)) });
 });
 
 /** One place with coordinates and a photo (looked up on first request). */

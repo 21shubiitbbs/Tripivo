@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppDataProvider } from '../lib/appData';
 import { AuthProvider, useAuth } from '../lib/auth';
+import { RealtimeProvider } from '../lib/realtime';
 import { ThemeProvider, useTheme } from '../theme';
 
 export default function RootLayout() {
@@ -10,9 +11,11 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
-          <AppDataProvider>
-            <RootNavigator />
-          </AppDataProvider>
+          <RealtimeProvider>
+            <AppDataProvider>
+              <RootNavigator />
+            </AppDataProvider>
+          </RealtimeProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

@@ -203,3 +203,18 @@ export async function upsertVote(pollId: string, userId: string, optionId: strin
     [pollId, userId, optionId],
   );
 }
+
+export async function isRoomMember(userId: string, roomId: string, db: Queryable = pool) {
+  const { rowCount } = await db.query('SELECT 1 FROM chat_room_members WHERE room_id = $1 AND user_id = $2', [
+    roomId,
+    userId,
+  ]);
+  return Boolean(rowCount);
+}
+
+export async function listRoomMemberIds(roomId: string, db: Queryable = pool) {
+  const { rows } = await db.query<{ user_id: string }>('SELECT user_id FROM chat_room_members WHERE room_id = $1', [
+    roomId,
+  ]);
+  return rows.map((row) => row.user_id);
+}

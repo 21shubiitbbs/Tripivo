@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import {
   Avatar,
@@ -18,17 +18,21 @@ import {
 import { createPoll, getChat, sendChatMessage, votePoll, type ChatMessage, type Poll } from '../../../lib/api';
 import { useProfile } from '../../../lib/auth';
 import { clockTime, errorMessage } from '../../../lib/format';
+import { setActiveChatRoom } from '../../../lib/push';
+import { useChatRoom, useRealtime } from '../../../lib/realtime';
 import { useQuery } from '../../../lib/useQuery';
 import { makeStyles, useTheme } from '../../../theme';
 
-// 28. Group chat (also used for direct conversations). New messages arrive by polling every
-// few seconds while the screen is open.
+// 28. Group chat (also used for direct conversations). New messages and typing arrive over the
+// real-time socket; while it is disconnected the screen polls every few seconds instead.
 export default function ChatScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const profile = useProfile();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const chat = useQuery(`chat-${id}`, () => getChat(id), { pollMs: 4000 });
+  const { connected } = useRealtime();
+  const chat = useQuery(`chat-${id}`, () => getChat(id), { pollMs: connected ? 30_000 : 4000 });
+  const { typing, notifyTyping } = useChatRoom(id, () => void chat.reload());
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isPollOpen, setIsPollOpen] = useState(false);
@@ -36,6 +40,13 @@ export default function ChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const room = chat.data?.chat;
   const messages = chat.data?.messages ?? [];
+
+  useFocusEffect(
+    useCallback(() => {
+      setActiveChatRoom(id);
+      return () => setActiveChatRoom(null);
+    }, [id]),
+  );
 
   function applyMessages(next: ChatMessage[]) {
     if (chat.data) chat.setData({ ...chat.data, messages: next });
@@ -85,6 +96,11 @@ export default function ChatScreen() {
     <Screen
       footer={
         <View>
+          {typing.length ? (
+            <Txt color="muted" style={styles.typing} variant="caption">
+              {typingLabel(typing.map((person) => person.name?.split(' ')[0] ?? 'Someone'))}
+            </Txt>
+          ) : null}
           {error ? <ErrorText>{error}</ErrorText> : null}
           {isPollOpen ? (
             <PollComposer
@@ -99,7 +115,10 @@ export default function ChatScreen() {
             <View style={styles.composer}>
               <View style={styles.inputWrap}>
                 <TextInput
-                  onChangeText={setText}
+                  onChangeText={(value) => {
+                    setText(value);
+                    if (value.trim()) notifyTyping();
+                  }}
                   onSubmitEditing={send}
                   placeholder="Type a message..."
                   placeholderTextColor={colors.textSubtle}
@@ -181,6 +200,12 @@ export default function ChatScreen() {
       </ScrollView>
     </Screen>
   );
+}
+
+function typingLabel(names: string[]) {
+  if (names.length === 1) return `${names[0]} is typing…`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+  return 'Several people are typing…';
 }
 
 function PollCard({ poll, onVote }: { poll: Poll; onVote: (optionId: string) => void }) {
@@ -287,6 +312,7 @@ const useStyles = makeStyles((c) => ({
   },
   bubbleMine: { borderTopLeftRadius: 18, borderTopRightRadius: 4, backgroundColor: c.primary },
   time: { fontSize: 10 },
+  typing: { marginBottom: 6, marginLeft: 4 },
   poll: {
     gap: 10,
     marginHorizontal: 20,

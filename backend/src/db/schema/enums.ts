@@ -69,6 +69,9 @@ export type ChatRoomKind = (typeof CHAT_ROOM_KINDS)[number];
 export const NOTIFICATION_KINDS = ['trips', 'messages', 'requests'] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
+export const PUSH_PLATFORMS = ['ios', 'android', 'web'] as const;
+export type PushPlatform = (typeof PUSH_PLATFORMS)[number];
+
 export const REPORT_TARGET_TYPES = ['user', 'trip', 'message', 'other'] as const;
 export type ReportTargetType = (typeof REPORT_TARGET_TYPES)[number];
 

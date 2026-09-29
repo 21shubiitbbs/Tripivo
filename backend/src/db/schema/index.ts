@@ -12,8 +12,9 @@ import type {
   GroupExpenseSplitRow,
   GroupMemberRow,
   GroupRow,
+  GroupSettlementRow,
 } from './groups.js';
-import type { NotificationRow, ReportRow, UserBlockRow, UserFollowRow } from './social.js';
+import type { NotificationRow, PushTokenRow, ReportRow, UserBlockRow, UserFollowRow } from './social.js';
 import type {
   DestinationRow,
   ExpenseRow,
@@ -75,6 +76,8 @@ export type Tables = {
   place_search_cache: PlaceSearchCacheRow;
   trip_deletion_requests: TripDeletionRequestRow;
   trip_deletion_votes: TripDeletionVoteRow;
+  push_tokens: PushTokenRow;
+  group_settlements: GroupSettlementRow;
 };
 
 export type TableName = keyof Tables;

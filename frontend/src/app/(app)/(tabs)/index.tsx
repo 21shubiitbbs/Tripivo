@@ -6,6 +6,7 @@ import { DestinationTile, TripListCard } from '../../../components/trips';
 import {
   Avatar,
   ChipRow,
+  ListRow,
   EmptyState,
   ErrorState,
   IconButton,
@@ -15,8 +16,9 @@ import {
   SectionTitle,
   Txt,
 } from '../../../components/ui';
-import { getNotifications, getPopularPlaces, searchTrips, type TripCategory } from '../../../lib/api';
+import { getNotifications, getPopularPlaces, getRecommendedTrips, searchTrips, type TripCategory } from '../../../lib/api';
 import { useProfile } from '../../../lib/auth';
+import { useRealtimeEvent } from '../../../lib/realtime';
 import { useQuery } from '../../../lib/useQuery';
 import { makeStyles, useTheme } from '../../../theme';
 
@@ -48,12 +50,19 @@ export default function HomeScreen() {
   const trips = useQuery(`home-trips-${categoryKey ?? 'all'}`, () => searchTrips({ category: categoryKey, limit: 20 }));
   const notifications = useQuery('notifications-unread', () => getNotifications());
   const unread = notifications.data?.unread ?? 0;
+  // Scored against the profile's interests, budget and home city (GET /matching/trips).
+  const recommended = useQuery('recommended-trips', () => getRecommendedTrips(3));
+  useRealtimeEvent((event) => {
+    if (event.type === 'notification' || event.type === 'resync') void notifications.reload();
+  });
   const firstName = profile.name?.split(' ')[0];
 
   return (
     <Screen
       edges={['top']}
-      onRefresh={() => Promise.all([trips.reload(), destinations.reload(), notifications.reload()])}
+      onRefresh={() =>
+        Promise.all([trips.reload(), destinations.reload(), notifications.reload(), recommended.reload()])
+      }
     >
       <View style={styles.topBar}>
         <Txt numberOfLines={1} style={styles.flex} variant="h2">
@@ -109,6 +118,39 @@ export default function HomeScreen() {
         ))}
       </ScrollView>
 
+      {recommended.data?.length ? (
+        <>
+          <SectionTitle title="Recommended for you" />
+          <View style={styles.list}>
+            {recommended.data.map((trip) => (
+              <View key={trip.id} style={styles.recommendation}>
+                <TripListCard trip={trip} />
+                {trip.reasons.length ? (
+                  <View style={styles.reasons}>
+                    <Ionicons color={colors.primary} name="sparkles-outline" size={13} />
+                    <Txt color="primary" numberOfLines={1} style={styles.flex} variant="caption">
+                      {trip.reasons.slice(0, 3).join(' · ')}
+                    </Txt>
+                  </View>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      <View style={styles.buddies}>
+        <ListRow
+          boxed
+          icon="account-heart-outline"
+          iconBackground={colors.primarySoft}
+          iconTint={colors.primary}
+          onPress={() => router.push('/matches')}
+          subtitle="Like-minded people with your interests and budget"
+          title="Find travel buddies"
+        />
+      </View>
+
       <SectionTitle
         action="View all"
         onAction={() => router.push({ pathname: '/results', params: { category: categoryKey ?? '' } })}
@@ -148,4 +190,7 @@ const useStyles = makeStyles((c) => ({
   chips: { marginTop: 16 },
   tiles: { gap: 10 },
   list: { gap: 12 },
+  recommendation: { gap: 6 },
+  reasons: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 4 },
+  buddies: { marginTop: 16 },
 }));

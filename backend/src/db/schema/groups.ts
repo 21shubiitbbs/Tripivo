@@ -1,5 +1,5 @@
 import type { CurrencyCode, DateString, Money, Timestamps, Uuid } from './common.js';
-import type { GroupMemberRole, GroupMemberStatus, GroupStatus, SplitType } from './enums.js';
+import type { ExpenseCategory, GroupMemberRole, GroupMemberStatus, GroupStatus, SplitType } from './enums.js';
 
 /** The travellers on a trip. A trip may have several groups. */
 export type GroupRow = Timestamps & {
@@ -29,6 +29,9 @@ export type GroupExpenseRow = Timestamps & {
   currency: CurrencyCode;
   split_type: SplitType;
   spent_on: DateString | null;
+  category: ExpenseCategory;
+  /** Who entered it (may differ from `paid_by`). */
+  created_by: Uuid | null;
 };
 
 /** Primary key is (expense_id, user_id). */
@@ -37,4 +40,16 @@ export type GroupExpenseSplitRow = {
   user_id: Uuid;
   amount: Money;
   settled_at: Date | null;
+};
+
+/** A payment between two members that pays off what `from_user` owes `to_user`. */
+export type GroupSettlementRow = {
+  id: Uuid;
+  group_id: Uuid;
+  from_user: Uuid;
+  to_user: Uuid;
+  amount: Money;
+  currency: CurrencyCode;
+  created_by: Uuid | null;
+  created_at: Date;
 };

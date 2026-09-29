@@ -158,6 +158,27 @@ function TripDetails({ trip, onChanged }: { trip: TripDetail; onChanged: () => P
           ) : null}
 
           {trip.membership === 'host' || trip.membership === 'member' ? (
+            <View style={styles.hostActions}>
+              <Button
+                compact
+                label="Expenses"
+                onPress={() => router.push({ pathname: '/trip/[id]/expenses', params: { id: trip.id } })}
+                style={styles.flex}
+                variant="soft"
+              />
+              {trip.membership === 'host' && trip.phase !== 'completed' ? (
+                <Button
+                  compact
+                  label="Find travelers"
+                  onPress={() => router.push({ pathname: '/matches', params: { tripId: trip.id } })}
+                  style={styles.flex}
+                  variant="soft"
+                />
+              ) : null}
+            </View>
+          ) : null}
+
+          {trip.membership === 'host' || trip.membership === 'member' ? (
             <TripDeletion onChanged={onChanged} trip={trip} />
           ) : null}
 

@@ -38,6 +38,13 @@
           "photosPermission": "Tripivo needs your photos so you can pick a profile picture.",
           "cameraPermission": "Tripivo uses the camera so you can take a profile picture."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default",
+          "color": "#1D6AE5"
+        }
       ]
     ],
     "scheme": "tripivo"

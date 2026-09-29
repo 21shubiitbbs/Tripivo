@@ -87,7 +87,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 // ---------------------------------------------------------------------------------------------
 // Health and auth
 
-export type ApiHealth = { status: string; service: string; database: 'ok' | 'unreachable' };
+export type ApiHealth = {
+  status: string;
+  service: string;
+  database: 'ok' | 'unreachable';
+  redis?: 'ok' | 'unreachable' | 'disabled';
+};
 
 export function getApiHealth() {
   return request<ApiHealth>('/health', { token: null });
@@ -639,8 +644,128 @@ export function markNotificationsRead() {
   return request<void>('/notifications/read-all', { method: 'POST' });
 }
 
+export type PushPlatform = 'ios' | 'android' | 'web';
+
+/** Sends this device push notifications for the current session (they stop when it ends). */
+export function registerPushToken(token: string, platform: PushPlatform) {
+  return request<void>('/notifications/push-tokens', { method: 'POST', body: { token, platform } });
+}
+
+export function unregisterPushToken(token: string) {
+  return request<void>('/notifications/push-tokens', { method: 'DELETE', body: { token } });
+}
+
 export type ReportTarget = 'user' | 'trip' | 'message' | 'other';
 
 export function sendReport(targetType: ReportTarget, details: string, targetId?: string) {
   return request<{ report: { id: string } }>('/reports', { method: 'POST', body: { targetType, targetId, details } });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Shared expenses. Amounts are in minor units (paise): 12345 = ₹123.45.
+
+export type ExpenseCategory = 'transport' | 'accommodation' | 'food' | 'activities' | 'shopping' | 'other';
+
+export type Expense = {
+  id: string;
+  title: string;
+  category: ExpenseCategory;
+  amountMinor: number;
+  currency: string;
+  splitType: 'equal' | 'custom';
+  spentOn: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  paidBy: UserSummary;
+  splits: { userId: string; amountMinor: number }[];
+  canDelete: boolean;
+};
+
+export type Settlement = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  amountMinor: number;
+  currency: string;
+  createdBy: string | null;
+  createdAt: string;
+  canDelete: boolean;
+};
+
+export type ExpenseSummary = {
+  currency: string;
+  totalMinor: number;
+  myShareMinor: number;
+  /** Positive: the group owes you. Negative: you owe the group. */
+  myNetMinor: number;
+  /** Current members (`active`) plus anyone who left but still appears in the money. */
+  participants: (UserSummary & { active: boolean })[];
+  expenses: Expense[];
+  balances: { userId: string; paidMinor: number; shareMinor: number; netMinor: number }[];
+  suggestedSettlements: { fromUserId: string; toUserId: string; amountMinor: number }[];
+  settlements: Settlement[];
+};
+
+export type NewExpense = {
+  title: string;
+  /** In major units, e.g. 1250.5. */
+  amount: number;
+  category?: ExpenseCategory;
+  paidBy?: string;
+  spentOn?: string;
+} & (
+  | { splitType?: 'equal'; participants?: string[] }
+  | { splitType: 'custom'; splits: { userId: string; amount: number }[] }
+);
+
+export async function getExpenses(tripId: string) {
+  return (await request<{ summary: ExpenseSummary }>(`/trips/${tripId}/expenses`)).summary;
+}
+
+export async function addExpense(tripId: string, expense: NewExpense) {
+  return (await request<{ summary: ExpenseSummary }>(`/trips/${tripId}/expenses`, { method: 'POST', body: expense }))
+    .summary;
+}
+
+export async function deleteExpense(tripId: string, expenseId: string) {
+  return (await request<{ summary: ExpenseSummary }>(`/trips/${tripId}/expenses/${expenseId}`, { method: 'DELETE' }))
+    .summary;
+}
+
+/** Records a payment made outside the app (cash, UPI). `amount` is in major units. */
+export async function recordSettlement(tripId: string, payment: { fromUserId: string; toUserId: string; amount: number }) {
+  return (
+    await request<{ summary: ExpenseSummary }>(`/trips/${tripId}/expenses/settlements`, { method: 'POST', body: payment })
+  ).summary;
+}
+
+export async function deleteSettlement(tripId: string, settlementId: string) {
+  return (
+    await request<{ summary: ExpenseSummary }>(`/trips/${tripId}/expenses/settlements/${settlementId}`, {
+      method: 'DELETE',
+    })
+  ).summary;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Matching
+
+export type TravelerMatch = UserSummary & {
+  /** 0–100. */
+  score: number;
+  /** Why they're suggested, e.g. "3 shared interests", "Also from Pune". */
+  reasons: string[];
+  sharedInterests: string[];
+  isFollowing: boolean;
+};
+
+export type TripRecommendation = TripSummary & { score: number; reasons: string[] };
+
+/** Like-minded travelers. With `tripId`: people who'd fit that trip and aren't on it yet. */
+export async function getMatchingTravelers(options: { tripId?: string; limit?: number } = {}) {
+  return (await request<{ travelers: TravelerMatch[] }>('/matching/travelers', { query: options })).travelers;
+}
+
+export async function getRecommendedTrips(limit = 10) {
+  return (await request<{ trips: TripRecommendation[] }>('/matching/trips', { query: { limit } })).trips;
 }

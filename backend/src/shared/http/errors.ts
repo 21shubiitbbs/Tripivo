@@ -74,7 +74,7 @@ export const notFoundHandler: RequestHandler = (_request, response) => {
 };
 
 // Express recognizes error handlers by their four parameters, so `_next` must stay.
-export const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
+export const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
   if (error instanceof HttpError) {
     response.status(error.status).json({ ...error.extra, error: error.message, code: error.code, field: error.field });
     return;
@@ -84,6 +84,6 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
     return;
   }
 
-  console.error(error);
+  console.error(`Unhandled error in ${request.method} ${request.originalUrl.split('?')[0]} (request ${response.locals.requestId})`, error);
   response.status(500).json({ error: 'Something went wrong' });
 };

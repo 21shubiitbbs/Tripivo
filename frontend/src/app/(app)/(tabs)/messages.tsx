@@ -6,6 +6,7 @@ import { Avatar, EmptyState, ErrorState, LoadingState, Screen, SearchBar, Txt } 
 import { getChats, type ChatSummary } from '../../../lib/api';
 import { useProfile } from '../../../lib/auth';
 import { chatTime } from '../../../lib/format';
+import { useRealtime, useRealtimeEvent } from '../../../lib/realtime';
 import { useQuery } from '../../../lib/useQuery';
 import { makeStyles } from '../../../theme';
 
@@ -18,11 +19,16 @@ function preview(chat: ChatSummary, myId: string) {
   return last.body;
 }
 
-// 32. Messages. Refreshes every 10 seconds while open.
+// 32. Messages. Refreshes when the real-time socket says a chat changed, or every 10 seconds
+// while the socket is down.
 export default function MessagesScreen() {
   const styles = useStyles();
   const profile = useProfile();
-  const chats = useQuery('chats', getChats, { pollMs: 10_000 });
+  const { connected } = useRealtime();
+  const chats = useQuery('chats', getChats, { pollMs: connected ? undefined : 10_000 });
+  useRealtimeEvent((event) => {
+    if (event.type === 'chats.changed' || event.type === 'resync') void chats.reload();
+  });
   const [query, setQuery] = useState('');
   const needle = query.trim().toLowerCase();
   const visible = (chats.data ?? []).filter(

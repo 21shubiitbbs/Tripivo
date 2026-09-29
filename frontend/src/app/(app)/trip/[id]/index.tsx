@@ -19,7 +19,7 @@ import {
   Txt,
   UnderlineTabs,
 } from '../../../../components/ui';
-import { interests, isInterestKey } from '../../../../data/catalog';
+import { industryLabel, interests, isInterestKey } from '../../../../data/catalog';
 import {
   cancelTripDeletion,
   deleteTrip,
@@ -195,6 +195,32 @@ function TripDetails({ trip, onChanged }: { trip: TripDetail; onChanged: () => P
                   <>
                     <SectionTitle title="Who should join" />
                     <Txt color="muted">{trip.audience}</Txt>
+                  </>
+                ) : null}
+                {trip.crowd.industries.length ? (
+                  <>
+                    <SectionTitle title="Who’s going" />
+                    {trip.crowd.sameIndustry > 0 ? (
+                      <Txt color="primary" style={styles.crowdHighlight} variant="label">
+                        {trip.crowd.sameIndustry === 1
+                          ? '1 traveler works in your field'
+                          : `${trip.crowd.sameIndustry} travelers work in your field`}
+                      </Txt>
+                    ) : null}
+                    <View style={styles.tags}>
+                      {trip.crowd.industries.map((entry) => (
+                        <View key={entry.industry} style={styles.tag}>
+                          <Txt variant="caption">
+                            {entry.count} in {industryLabel(entry.industry) ?? entry.industry}
+                          </Txt>
+                        </View>
+                      ))}
+                    </View>
+                    {trip.crowd.averageAge ? (
+                      <Txt color="muted" style={styles.crowdNote} variant="caption">
+                        Average age {trip.crowd.averageAge}
+                      </Txt>
+                    ) : null}
                   </>
                 ) : null}
                 {trip.activities.some(isInterestKey) ? (
@@ -412,6 +438,8 @@ const useStyles = makeStyles((c) => ({
   about: { marginTop: 8 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: c.surfaceAlt },
+  crowdHighlight: { marginBottom: 8 },
+  crowdNote: { marginTop: 8 },
   openFull: { alignSelf: 'center', marginTop: 16, padding: 8 },
   footer: {
     width: '100%',

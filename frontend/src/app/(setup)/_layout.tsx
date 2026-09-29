@@ -6,6 +6,7 @@ export default function SetupLayout() {
       <Stack.Screen name="photo" />
       <Stack.Screen name="about" />
       <Stack.Screen name="interests" />
+      <Stack.Screen name="vibe" />
     </Stack>
   );
 }

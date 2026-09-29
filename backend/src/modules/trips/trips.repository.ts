@@ -187,6 +187,22 @@ export async function listMyTrips(userId: string, db: Queryable = pool): Promise
   return rows;
 }
 
+/** Trips `userId` hosts or is on, as seen by the viewer; hidden when either blocked the other. */
+export async function listUserTrips(viewerId: string, userId: string, db: Queryable = pool): Promise<TripSummaryRecord[]> {
+  const { rows } = await db.query<TripSummaryRecord>(
+    `SELECT ${SUMMARY_COLUMNS} ${SUMMARY_FROM}
+      WHERE t.status <> 'cancelled'
+        AND (t.creator_id = $4 OR $4 IN (${ACTIVE_MEMBERS}))
+        AND NOT EXISTS (SELECT 1 FROM user_blocks b
+                         WHERE (b.blocker_id = $1 AND b.blocked_id = $4) OR (b.blocker_id = $4 AND b.blocked_id = $1))
+        AND ${NOT_BLOCKED}
+      ORDER BY t.start_date DESC NULLS LAST
+      LIMIT 30`,
+    [viewerId, null, null, userId],
+  );
+  return rows;
+}
+
 export async function findTripSummary(
   viewerId: string,
   tripId: string,

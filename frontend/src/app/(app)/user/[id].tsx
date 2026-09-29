@@ -1,16 +1,31 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { InterestTags, ProfileHeader, ProfileStats } from '../../../components/profile';
+import {
+  BadgeRow,
+  BucketListView,
+  CompatibilityCard,
+  InterestTags,
+  ProfileHeader,
+  ProfileStats,
+  PromptCards,
+  TagSection,
+  VibeView,
+} from '../../../components/profile';
+import { TripListCard } from '../../../components/trips';
 import { Button, ErrorState, ErrorText, Header, LoadingState, Screen, SectionTitle, Txt } from '../../../components/ui';
+import { LOOKING_FOR, TRAVEL_BUDGETS } from '../../../data/catalog';
 import { getUser, setBlocked, setFollowing, startDirectChat } from '../../../lib/api';
+import { useProfile } from '../../../lib/auth';
 import { errorMessage } from '../../../lib/format';
 import { useQuery } from '../../../lib/useQuery';
 import { makeStyles } from '../../../theme';
 
-// Another traveler's profile: follow them, message them, or block them.
+// Another traveler's profile: how well you'd travel together, their vibe, prompts, bucket list and
+// trips. Follow them, message them, or block them.
 export default function TravelerProfileScreen() {
   const styles = useStyles();
+  const me = useProfile();
   const { id } = useLocalSearchParams<{ id: string }>();
   const user = useQuery(`user-${id}`, () => getUser(id));
   const [busy, setBusy] = useState<'follow' | 'message' | 'block' | null>(null);
@@ -37,9 +52,20 @@ export default function TravelerProfileScreen() {
     );
   }
 
+  const firstName = profile.name?.split(' ')[0] ?? 'This traveler';
+  const compatibility = profile.compatibility;
+  const hasVibe = Object.values(profile.vibe).some((value) => value !== null);
+  const budget = TRAVEL_BUDGETS.find((option) => option.key === profile.budget);
+  const upcoming = profile.trips.filter((trip) => trip.phase !== 'completed');
+  const past = profile.trips.filter((trip) => trip.phase === 'completed');
+
   return (
-    <Screen header={<Header />}>
+    <Screen header={<Header />} onRefresh={user.reload}>
       <ProfileHeader profile={profile} />
+      <View style={styles.badges}>
+        <BadgeRow badges={profile.badges} />
+      </View>
+      {compatibility ? <CompatibilityCard compatibility={compatibility} name={profile.name} /> : null}
       <ProfileStats stats={profile.stats} />
 
       {profile.isMe ? (
@@ -81,8 +107,67 @@ export default function TravelerProfileScreen() {
       {error ? <ErrorText>{error}</ErrorText> : null}
 
       <SectionTitle title="About" />
-      <Txt color="muted">{profile.bio || `${profile.name?.split(' ')[0] ?? 'This traveler'} hasn’t written a bio yet.`}</Txt>
-      <InterestTags keys={profile.interests} />
+      <Txt color="muted">{profile.bio || `${firstName} hasn’t written a bio yet.`}</Txt>
+
+      {profile.prompts.length ? (
+        <>
+          <SectionTitle title="In their words" />
+          <PromptCards prompts={profile.prompts} />
+        </>
+      ) : null}
+
+      {hasVibe ? (
+        <>
+          <SectionTitle title="Travel vibe" />
+          <VibeView compareTo={profile.isMe ? null : me.vibe} vibe={profile.vibe} />
+        </>
+      ) : null}
+      {budget ? (
+        <Txt color="muted" style={styles.budget}>
+          Budget: {budget.label} · {budget.description}
+        </Txt>
+      ) : null}
+
+      <InterestTags highlight={compatibility?.sharedInterests} keys={profile.interests} />
+      <TagSection
+        highlight={compatibility?.sharedLanguages}
+        items={profile.languages.map((language) => ({ label: language }))}
+        title="Languages"
+      />
+      <TagSection items={LOOKING_FOR.filter((option) => profile.lookingFor.includes(option.key))} title="Open to" />
+
+      {profile.bucketList.length ? (
+        <>
+          <SectionTitle title="Bucket list" />
+          <BucketListView items={profile.bucketList} shared={compatibility?.sharedBucketList} />
+          {compatibility?.sharedBucketList.length ? (
+            <Txt color="primary" style={styles.budget} variant="caption">
+              ✦ Also on your bucket list
+            </Txt>
+          ) : null}
+        </>
+      ) : null}
+
+      {upcoming.length ? (
+        <>
+          <SectionTitle title="Upcoming trips" />
+          <View style={styles.trips}>
+            {upcoming.map((trip) => (
+              <TripListCard key={trip.id} trip={trip} />
+            ))}
+          </View>
+        </>
+      ) : null}
+      {past.length ? (
+        <>
+          <SectionTitle title="Past trips" />
+          <View style={styles.trips}>
+            {past.map((trip) => (
+              <TripListCard key={trip.id} showSave={false} trip={trip} />
+            ))}
+          </View>
+        </>
+      ) : null}
 
       {!profile.isMe && !profile.isBlocked ? (
         <Button
@@ -104,4 +189,7 @@ const useStyles = makeStyles(() => ({
   flex: { flex: 1 },
   actions: { flexDirection: 'row', gap: 10 },
   block: { marginTop: 24 },
+  badges: { marginTop: 14 },
+  budget: { marginTop: 12 },
+  trips: { gap: 12 },
 }));

@@ -94,7 +94,7 @@ export function TravelersGrid({ travelers }: { travelers: Traveler[] }) {
                 {person.role === 'admin' ? <Txt color="primary" variant="caption">  Host</Txt> : null}
               </Txt>
               <Txt color="muted" numberOfLines={1} variant="caption">
-                {[person.age, person.city].filter(Boolean).join(' • ') || 'Tripivo traveler'}
+                {[person.age, person.profession ?? person.city].filter(Boolean).join(' • ') || 'Tripivo traveler'}
               </Txt>
             </View>
           </Pressable>

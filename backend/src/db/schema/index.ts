@@ -29,7 +29,7 @@ import type {
   TripReviewRow,
   TripRow,
 } from './trips.js';
-import type { TravelProfileRow, TripPreferencesRow, UserRow } from './users.js';
+import type { BucketListItemRow, TravelProfileRow, TripPreferencesRow, UserRow } from './users.js';
 
 export * from './auth.js';
 export * from './chat.js';
@@ -78,6 +78,7 @@ export type Tables = {
   trip_deletion_votes: TripDeletionVoteRow;
   push_tokens: PushTokenRow;
   group_settlements: GroupSettlementRow;
+  bucket_list_items: BucketListItemRow;
 };
 
 export type TableName = keyof Tables;

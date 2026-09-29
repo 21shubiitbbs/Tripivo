@@ -61,7 +61,8 @@ const DEMO_PHONE = '+910000000000';
 async function loadCachedProfile(userId: string): Promise<MyProfile | null> {
   try {
     const cached = JSON.parse((await getItem(PROFILE_CACHE_KEY)) ?? 'null') as MyProfile | null;
-    return cached?.id === userId ? cached : null;
+    // Fill in fields added since the profile was cached, so screens can rely on them.
+    return cached?.id === userId ? { ...EMPTY_PROFILE, ...cached } : null;
   } catch {
     return null;
   }
@@ -264,8 +265,17 @@ const EMPTY_PROFILE: MyProfile = {
   gender: null,
   city: null,
   profession: null,
+  industry: null,
   travelStyles: [],
   interests: [],
+  languages: [],
+  lookingFor: [],
+  budget: null,
+  vibe: { pace: null, planning: null, social: null, rhythm: null },
+  prompts: [],
+  bucketList: [],
+  badges: [],
+  completeness: { percent: 0, missing: [] },
   completed: false,
   stats: { trips: 0, rating: null, followers: 0, following: 0 },
   email: null,

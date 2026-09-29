@@ -1,8 +1,11 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
+import { OptionChips } from '../../components/profile';
 import { Button, ChipRow, ErrorText, Field, Header, Screen, Txt } from '../../components/ui';
 import { PlacePickerField } from '../../components/PlaceSearch';
+import { INDUSTRIES } from '../../data/catalog';
+import type { Industry } from '../../lib/api';
 import { useAuth, useProfile } from '../../lib/auth';
 import { errorMessage } from '../../lib/format';
 import { makeStyles } from '../../theme';
@@ -21,6 +24,7 @@ export default function AboutYouScreen() {
   // Set when the city is picked from search (undefined = unchanged, null = cleared).
   const [cityPlaceId, setCityPlaceId] = useState<string | null | undefined>(undefined);
   const [profession, setProfession] = useState(profile.profession ?? '');
+  const [industry, setIndustry] = useState<Industry | null>(profile.industry);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,6 +38,7 @@ export default function AboutYouScreen() {
         gender,
         ...(cityPlaceId ? { cityPlaceId } : { city: city.trim(), ...(cityPlaceId === null ? { cityPlaceId: null } : {}) }),
         profession: profession.trim(),
+        industry,
       });
       router.push('/interests');
     } catch (saveError) {
@@ -85,9 +90,19 @@ export default function AboutYouScreen() {
           autoCapitalize="words"
           icon="briefcase-outline"
           onChangeText={setProfession}
-          placeholder="Profession"
+          placeholder="Profession, e.g. Product Designer"
           value={profession}
         />
+        <View>
+          <Txt color="muted" style={styles.label} variant="caption">
+            Your field: we’ll match you with travelers who do similar work
+          </Txt>
+          <OptionChips
+            onToggle={(key) => setIndustry((current) => (current === key ? null : key))}
+            options={INDUSTRIES}
+            selected={industry ? [industry] : []}
+          />
+        </View>
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
     </Screen>

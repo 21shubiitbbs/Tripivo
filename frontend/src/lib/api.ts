@@ -236,7 +236,48 @@ export type UserSummary = {
   picture: string | null;
   city: string | null;
   age: number | null;
+  profession: string | null;
+  industry: Industry | null;
   verified: boolean;
+};
+
+/** The field someone works in; labels and icons are in `INDUSTRIES` in data/catalog.ts. */
+export type Industry =
+  | 'tech'
+  | 'design'
+  | 'business'
+  | 'finance'
+  | 'marketing'
+  | 'healthcare'
+  | 'education'
+  | 'engineering'
+  | 'creative'
+  | 'law'
+  | 'science'
+  | 'hospitality'
+  | 'public_service'
+  | 'student'
+  | 'other';
+
+export type LookingFor = 'travel_buddies' | 'networking' | 'workation' | 'weekend_trips' | 'long_trips';
+export type BudgetLevel = 'budget' | 'moderate' | 'luxury';
+export type VibeAxis = 'pace' | 'planning' | 'social' | 'rhythm';
+/** Travel personality, each axis 1–5 (see `VIBE_AXES` in data/catalog.ts), or null when unset. */
+export type Vibe = Record<VibeAxis, number | null>;
+export type ProfilePrompt = { prompt: string; answer: string };
+export type BucketListItem = { id: string; placeId: string | null; name: string; country: string | null };
+
+/** How well the viewer and another traveler fit, from their profile. */
+export type Compatibility = {
+  /** 0–100. */
+  score: number;
+  reasons: string[];
+  sharedInterests: string[];
+  sharedLanguages: string[];
+  sharedBucketList: string[];
+  sameIndustry: boolean;
+  /** 0–100, or null when either hasn't set their vibe. */
+  vibeMatch: number | null;
 };
 
 export type Profile = {
@@ -250,8 +291,17 @@ export type Profile = {
   gender: string | null;
   city: string | null;
   profession: string | null;
+  industry: Industry | null;
   travelStyles: string[];
   interests: string[];
+  languages: string[];
+  lookingFor: LookingFor[];
+  budget: BudgetLevel | null;
+  vibe: Vibe;
+  prompts: ProfilePrompt[];
+  bucketList: BucketListItem[];
+  /** Badge keys; see `BADGES` in data/catalog.ts. */
+  badges: string[];
   completed: boolean;
   stats: { trips: number; rating: number | null; followers: number; following: number };
 };
@@ -265,8 +315,18 @@ export type MyProfile = Profile & {
   cityPlaceId: string | null;
   /** The home city's coordinates, when it was picked from place search. */
   homeLocation: Coordinates | null;
+  /** Missing keys: picture, bio, city, profession, interests, languages, vibe, prompts, bucketList. */
+  completeness: { percent: number; missing: string[] };
 };
-export type PublicProfile = Profile & { isMe: boolean; isFollowing: boolean; isBlocked: boolean };
+export type PublicProfile = Profile & {
+  isMe: boolean;
+  isFollowing: boolean;
+  isBlocked: boolean;
+  /** Null on your own profile, when blocked, or before they finish setup. */
+  compatibility: Compatibility | null;
+  /** Trips they host or joined, newest first. */
+  trips: TripSummary[];
+};
 
 export type ProfileChanges = Partial<{
   name: string;
@@ -280,8 +340,16 @@ export type ProfileChanges = Partial<{
   /** Picks the city from place search; the API fills in `city` from it. `null` unlinks. */
   cityPlaceId: string | null;
   profession: string;
+  industry: Industry | null;
   travelStyles: string[];
   interests: string[];
+  languages: string[];
+  lookingFor: LookingFor[];
+  budget: BudgetLevel | null;
+  /** Only the axes sent are changed. */
+  vibe: Partial<Vibe>;
+  /** Replaces all prompts; up to three. */
+  prompts: ProfilePrompt[];
   completed: boolean;
 }>;
 
@@ -295,6 +363,17 @@ export async function updateMyProfile(changes: ProfileChanges) {
 
 export async function getUser(userId: string) {
   return (await request<{ profile: PublicProfile }>(`/users/${userId}`)).profile;
+}
+
+/** A place picked from place search, or typed text. Returns the whole list. */
+export async function addToBucketList(place: { placeId: string } | { name: string }) {
+  return (await request<{ bucketList: BucketListItem[] }>('/users/me/bucket-list', { method: 'POST', body: place }))
+    .bucketList;
+}
+
+export async function removeFromBucketList(itemId: string) {
+  return (await request<{ bucketList: BucketListItem[] }>(`/users/me/bucket-list/${itemId}`, { method: 'DELETE' }))
+    .bucketList;
 }
 
 export function setFollowing(userId: string, following: boolean) {
@@ -421,6 +500,8 @@ export type TripDetail = TripSummary & {
   audience: string | null;
   itinerary: ItineraryDay[];
   travelers: Traveler[];
+  /** What the group looks like: the fields people work in, and how many share the viewer's. */
+  crowd: { industries: { industry: Industry; count: number }[]; sameIndustry: number; averageAge: number | null };
   reviews: Review[];
   /** Number of reviews with 5, 4, 3, 2 and 1 stars. */
   ratingDistribution: number[];
@@ -761,8 +842,13 @@ export type TravelerMatch = UserSummary & {
 
 export type TripRecommendation = TripSummary & { score: number; reasons: string[] };
 
+/** What suggested travelers must share with you; `profession` fails with code `industry_required` until you set one. */
+export type MatchFocus = 'all' | 'profession' | 'interests' | 'bucketList';
+
 /** Like-minded travelers. With `tripId`: people who'd fit that trip and aren't on it yet. */
-export async function getMatchingTravelers(options: { tripId?: string; limit?: number } = {}) {
+export async function getMatchingTravelers(
+  options: { tripId?: string; limit?: number; focus?: MatchFocus; industry?: Industry } = {},
+) {
   return (await request<{ travelers: TravelerMatch[] }>('/matching/travelers', { query: options })).travelers;
 }
 

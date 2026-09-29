@@ -2,12 +2,14 @@ import { Router } from 'express';
 import { uuidParam } from '../../shared/http/validate.js';
 import { requireAuth } from '../auth/auth.middleware.js';
 import {
+  addToBucketList,
   blockUser,
   followUser,
   getBlockedUsers,
   getContacts,
   getMyProfile,
   getPublicProfile,
+  removeFromBucketList,
   unblockUser,
   unfollowUser,
   updateMyProfile,
@@ -22,9 +24,23 @@ usersRouter.get('/me', async (_request, response) => {
   response.json({ profile: await getMyProfile(response.locals.userId) });
 });
 
-/** Partial update: name, username, picture, email, bio, age, gender, city, profession, travelStyles, interests, completed. */
+/**
+ * Partial update: name, username, picture, email, bio, age, gender, city, cityPlaceId, profession,
+ * industry, travelStyles, interests, languages, lookingFor, budget, vibe { pace, planning, social,
+ * rhythm }, prompts [{ prompt, answer }], completed.
+ */
 usersRouter.patch('/me', async (request, response) => {
   response.json({ profile: await updateMyProfile(response.locals.userId, request.body ?? {}) });
+});
+
+/** `{ placeId }` or `{ name }` → `{ bucketList }`. */
+usersRouter.post('/me/bucket-list', async (request, response) => {
+  response.status(201).json({ bucketList: await addToBucketList(response.locals.userId, request.body ?? {}) });
+});
+
+usersRouter.delete('/me/bucket-list/:itemId', async (request, response) => {
+  const itemId = uuidParam(request.params.itemId, 'Bucket list item');
+  response.json({ bucketList: await removeFromBucketList(response.locals.userId, itemId) });
 });
 
 usersRouter.get('/me/blocked', async (_request, response) => {

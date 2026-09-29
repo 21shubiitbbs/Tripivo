@@ -1,10 +1,11 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Button, ErrorText, Header, InterestGrid, Screen, TitleBlock } from '../../components/ui';
 import { interests, PROFILE_INTERESTS } from '../../data/catalog';
 import { useAuth, useProfile } from '../../lib/auth';
 import { errorMessage } from '../../lib/format';
 
-// 12. Profile setup: travel interests. Finishing marks the profile complete, which opens the app.
+// 12. Profile setup: travel interests. The travel vibe step comes next.
 export default function InterestsScreen() {
   const { updateProfile } = useAuth();
   const profile = useProfile();
@@ -16,21 +17,22 @@ export default function InterestsScreen() {
     setSelected((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
   }
 
-  async function finish() {
+  async function next() {
     setError(null);
     setIsSaving(true);
     try {
-      // Completing the profile switches the navigator to the app; no navigation needed here.
-      await updateProfile({ interests: selected, completed: true });
+      await updateProfile({ interests: selected });
+      router.push('/vibe');
     } catch (saveError) {
       setError(errorMessage(saveError, 'Could not save your interests.'));
+    } finally {
       setIsSaving(false);
     }
   }
 
   return (
     <Screen
-      footer={<Button disabled={selected.length === 0} label="Continue" loading={isSaving} onPress={finish} />}
+      footer={<Button disabled={selected.length === 0} label="Continue" loading={isSaving} onPress={next} />}
       header={<Header />}
     >
       <TitleBlock subtitle="Select your interests" title="Travel Interests" />

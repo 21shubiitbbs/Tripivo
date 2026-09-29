@@ -1,5 +1,5 @@
 import type { Money, Timestamps, Uuid } from './common.js';
-import type { BudgetLevel, TravelStyle } from './enums.js';
+import type { BudgetLevel, Industry, LookingFor, TravelStyle } from './enums.js';
 
 /** Contains `password_hash`: never send to clients. Use `PublicUser` from the users module. */
 export type UserRow = Timestamps & {
@@ -36,6 +36,31 @@ export type TravelProfileRow = Timestamps & {
   completed_at: Date | null;
   /** The place picked for `city`, if it came from place search. */
   city_place_id: string | null;
+  industry: Industry | null;
+  languages: string[];
+  looking_for: LookingFor[];
+  /** Travel personality, each 1–5: slow → packed days. */
+  vibe_pace: number | null;
+  /** Spontaneous → planner. */
+  vibe_planning: number | null;
+  /** Quiet time → life of the party. */
+  vibe_social: number | null;
+  /** Early bird → night owl. */
+  vibe_rhythm: number | null;
+  /** Up to three prompt answers. */
+  prompts: ProfilePrompt[];
+};
+
+export type ProfilePrompt = { prompt: string; answer: string };
+
+/** A place the user wants to visit. */
+export type BucketListItemRow = {
+  id: Uuid;
+  user_id: Uuid;
+  place_id: string | null;
+  name: string;
+  country: string | null;
+  created_at: Date;
 };
 
 /** 1:1 with travel_profiles; the criteria used to match travellers with trips. */

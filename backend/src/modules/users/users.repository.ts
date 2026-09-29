@@ -1,5 +1,5 @@
 import { pool, type Queryable } from '../../db/pool.js';
-import type { UserRow } from '../../db/schema/index.js';
+import type { BucketListItemRow, Industry, LookingFor, ProfilePrompt, UserRow } from '../../db/schema/index.js';
 
 /** The part of a user that is safe to send to clients. */
 export type PublicUser = Pick<UserRow, 'id' | 'email' | 'phone' | 'name' | 'picture'>;
@@ -104,6 +104,8 @@ export type UserSummary = {
   picture: string | null;
   city: string | null;
   age: number | null;
+  profession: string | null;
+  industry: Industry | null;
   /** Signed in with a verified Google account or phone number. */
   verified: boolean;
 };
@@ -120,6 +122,8 @@ export function userSummaryJson(alias: string) {
     'picture', ${alias}.picture,
     'city', ${alias}_p.city,
     'age', ${alias}_p.age,
+    'profession', ${alias}_p.profession,
+    'industry', ${alias}_p.industry,
     'verified', (${alias}.google_id IS NOT NULL OR ${alias}.phone IS NOT NULL)
   )`;
 }
@@ -150,12 +154,27 @@ export type ProfileRecord = {
   interests: string[];
   completed_at: Date | null;
   city_place_id: string | null;
+  industry: Industry | null;
+  languages: string[];
+  looking_for: LookingFor[];
+  budget: string | null;
+  vibe_pace: number | null;
+  vibe_planning: number | null;
+  vibe_social: number | null;
+  vibe_rhythm: number | null;
+  prompts: ProfilePrompt[];
   home_latitude: number | null;
   home_longitude: number | null;
   trip_count: number;
   rating: string | null;
   follower_count: number;
   following_count: number;
+  /** For badges: trips hosted, trips finished, distinct places and countries of finished trips. */
+  hosted_count: number;
+  completed_count: number;
+  place_count: number;
+  country_count: number;
+  bucket_list: BucketListItem[];
 };
 
 export async function findProfile(userId: string, db: Queryable = pool): Promise<ProfileRecord | null> {
@@ -166,7 +185,9 @@ export async function findProfile(userId: string, db: Queryable = pool): Promise
             p.bio, p.age, p.gender, p.city, p.profession,
             COALESCE(p.travel_styles, '{}') AS travel_styles,
             COALESCE(p.interests, '{}') AS interests,
-            p.completed_at, p.city_place_id,
+            p.completed_at, p.city_place_id, p.industry, p.budget,
+            COALESCE(p.languages, '{}') AS languages, COALESCE(p.looking_for, '{}') AS looking_for,
+            p.vibe_pace, p.vibe_planning, p.vibe_social, p.vibe_rhythm, COALESCE(p.prompts, '[]') AS prompts,
             cp.latitude::float8 AS home_latitude, cp.longitude::float8 AS home_longitude,
             (SELECT count(DISTINCT g.trip_id)::int
                FROM group_members gm JOIN groups g ON g.id = gm.group_id
@@ -175,14 +196,34 @@ export async function findProfile(userId: string, db: Queryable = pool): Promise
                FROM trip_reviews r JOIN trips t ON t.id = r.trip_id
               WHERE t.creator_id = u.id) AS rating,
             (SELECT count(*)::int FROM user_follows WHERE followee_id = u.id) AS follower_count,
-            (SELECT count(*)::int FROM user_follows WHERE follower_id = u.id) AS following_count
+            (SELECT count(*)::int FROM user_follows WHERE follower_id = u.id) AS following_count,
+            (SELECT count(*)::int FROM trips t WHERE t.creator_id = u.id AND t.status <> 'cancelled') AS hosted_count,
+            done.completed_count, done.place_count, done.country_count,
+            COALESCE((SELECT json_agg(json_build_object('id', b.id, 'placeId', b.place_id, 'name', b.name, 'country', b.country)
+                                      ORDER BY b.created_at)
+                        FROM bucket_list_items b WHERE b.user_id = u.id), '[]') AS bucket_list
        FROM users u
        LEFT JOIN travel_profiles p ON p.user_id = u.id
        LEFT JOIN places cp ON cp.id = p.city_place_id
+       LEFT JOIN LATERAL (
+         SELECT count(DISTINCT t.id)::int AS completed_count,
+                count(DISTINCT COALESCE(t.place_id, lower(t.destination)))::int AS place_count,
+                count(DISTINCT t.country)::int AS country_count
+           FROM group_members gm JOIN groups g ON g.id = gm.group_id JOIN trips t ON t.id = g.trip_id
+          WHERE gm.user_id = u.id AND gm.status = 'active' AND t.status <> 'cancelled' AND t.end_date < current_date
+       ) done ON true
       WHERE u.id = $1`,
     [userId],
   );
   return rows[0] ?? null;
+}
+
+export async function findIndustry(userId: string, db: Queryable = pool): Promise<Industry | null> {
+  const { rows } = await db.query<{ industry: Industry | null }>(
+    'SELECT industry FROM travel_profiles WHERE user_id = $1',
+    [userId],
+  );
+  return rows[0]?.industry ?? null;
 }
 
 export type UserChanges = {
@@ -217,6 +258,15 @@ export type TravelProfileChanges = {
   travel_styles?: string[];
   interests?: string[];
   city_place_id?: string | null;
+  industry?: Industry | null;
+  languages?: string[];
+  looking_for?: LookingFor[];
+  budget?: string | null;
+  vibe_pace?: number | null;
+  vibe_planning?: number | null;
+  vibe_social?: number | null;
+  vibe_rhythm?: number | null;
+  prompts?: ProfilePrompt[];
   /** true stamps completed_at (once). */
   completed?: boolean;
 };
@@ -229,7 +279,8 @@ export async function upsertTravelProfile(
   const { completed, ...fields } = changes;
   const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
   const columns = entries.map(([column]) => column);
-  const values: unknown[] = entries.map(([, value]) => value);
+  // pg would send a JS array of objects as a Postgres array; jsonb needs the JSON text.
+  const values: unknown[] = entries.map(([column, value]) => (column === 'prompts' ? JSON.stringify(value) : value));
 
   if (completed) {
     columns.push('completed_at');
@@ -340,4 +391,41 @@ export async function listContacts(userId: string, db: Queryable = pool): Promis
     [userId],
   );
   return rows.map((row) => row.user);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bucket list
+
+export type BucketListItem = { id: string; placeId: string | null; name: string; country: string | null };
+
+export async function listBucketList(userId: string, db: Queryable = pool): Promise<BucketListItem[]> {
+  const { rows } = await db.query<BucketListItem>(
+    `SELECT id, place_id AS "placeId", name, country FROM bucket_list_items WHERE user_id = $1 ORDER BY created_at`,
+    [userId],
+  );
+  return rows;
+}
+
+export async function countBucketList(userId: string, db: Queryable = pool) {
+  const { rows } = await db.query<{ count: number }>(
+    'SELECT count(*)::int AS count FROM bucket_list_items WHERE user_id = $1',
+    [userId],
+  );
+  return rows[0].count;
+}
+
+/** Adds a place; a place already on the list (same name) is left as it is. */
+export async function insertBucketListItem(
+  item: Pick<BucketListItemRow, 'user_id' | 'place_id' | 'name' | 'country'>,
+  db: Queryable = pool,
+) {
+  await db.query(
+    `INSERT INTO bucket_list_items (user_id, place_id, name, country) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, lower(name)) DO NOTHING`,
+    [item.user_id, item.place_id, item.name, item.country],
+  );
+}
+
+export async function deleteBucketListItem(userId: string, itemId: string, db: Queryable = pool) {
+  await db.query('DELETE FROM bucket_list_items WHERE id = $1 AND user_id = $2', [itemId, userId]);
 }

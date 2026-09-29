@@ -15,7 +15,7 @@ import {
 import { findDestinationByName } from '../destinations/destinations.repository.js';
 import { getPlace } from '../places/places.service.js';
 import { insertNotification } from '../notifications/notifications.repository.js';
-import { findPublicUserById } from '../users/users.repository.js';
+import { findIndustry, findPublicUserById, type UserSummary } from '../users/users.repository.js';
 import {
   addMember,
   cancelPendingRequest,
@@ -38,6 +38,7 @@ import {
   listPendingRequests,
   listReviews,
   listTravelers,
+  listUserTrips,
   lockTrip,
   ratingDistribution,
   removeMember,
@@ -129,14 +130,44 @@ export async function getMyTrips(viewerId: string) {
   return (await listMyTrips(viewerId)).map(toSummary);
 }
 
+/** Trips a traveler hosts or joined, for their profile. */
+export async function getUserTrips(viewerId: string, userId: string) {
+  return (await listUserTrips(viewerId, userId)).map(toSummary);
+}
+
+export type TripCrowd = {
+  /** The fields the travelers work in, most common first. */
+  industries: { industry: string; count: number }[];
+  /** Travelers (other than the viewer) who work in the viewer's field. */
+  sameIndustry: number;
+  averageAge: number | null;
+};
+
+/** "Who's going": what the group looks like, so people can pick trips with others like them. */
+function crowdOf(travelers: UserSummary[], viewerId: string, viewerIndustry: string | null): TripCrowd {
+  const counts = new Map<string, number>();
+  for (const traveler of travelers) {
+    if (traveler.industry) counts.set(traveler.industry, (counts.get(traveler.industry) ?? 0) + 1);
+  }
+  const ages = travelers.map((traveler) => traveler.age).filter((age): age is number => age !== null);
+  return {
+    industries: [...counts].map(([industry, count]) => ({ industry, count })).sort((a, b) => b.count - a.count),
+    sameIndustry: viewerIndustry
+      ? travelers.filter((traveler) => traveler.id !== viewerId && traveler.industry === viewerIndustry).length
+      : 0,
+    averageAge: ages.length ? Math.round(ages.reduce((sum, age) => sum + age, 0) / ages.length) : null,
+  };
+}
+
 export async function getTripDetail(viewerId: string, tripId: string) {
   const trip = toSummary(await requireTrip(viewerId, tripId));
-  const [extras, itinerary, travelers, reviews, distribution] = await Promise.all([
+  const [extras, itinerary, travelers, reviews, distribution, viewerIndustry] = await Promise.all([
     findTripExtras(tripId),
     listItinerary(tripId),
     listTravelers(tripId),
     listReviews(tripId),
     ratingDistribution(tripId),
+    findIndustry(viewerId),
   ]);
 
   const isOnTrip = trip.membership === 'host' || trip.membership === 'member';
@@ -150,6 +181,7 @@ export async function getTripDetail(viewerId: string, tripId: string) {
     audience: extras?.audience ?? null,
     itinerary,
     travelers,
+    crowd: crowdOf(travelers, viewerId, viewerIndustry),
     reviews,
     ratingDistribution: distribution,
     // Only people on the trip can open its group chat.

@@ -15,6 +15,30 @@ export const TRAVEL_STYLES = [
 ] as const;
 export type TravelStyle = (typeof TRAVEL_STYLES)[number];
 
+/** The field someone works in, for matching travelers by profession. */
+export const INDUSTRIES = [
+  'tech',
+  'design',
+  'business',
+  'finance',
+  'marketing',
+  'healthcare',
+  'education',
+  'engineering',
+  'creative',
+  'law',
+  'science',
+  'hospitality',
+  'public_service',
+  'student',
+  'other',
+] as const;
+export type Industry = (typeof INDUSTRIES)[number];
+
+/** What a traveler is open to (travel_profiles.looking_for). */
+export const LOOKING_FOR = ['travel_buddies', 'networking', 'workation', 'weekend_trips', 'long_trips'] as const;
+export type LookingFor = (typeof LOOKING_FOR)[number];
+
 export const TRIP_STATUSES = ['draft', 'open', 'full', 'ongoing', 'completed', 'cancelled'] as const;
 export type TripStatus = (typeof TRIP_STATUSES)[number];
 

@@ -10,7 +10,7 @@ import type pg from 'pg';
 import { env } from '../config/env.js';
 import { runMigrations } from '../db/migrator.js';
 import { pool } from '../db/pool.js';
-import type { ItineraryActivity } from '../db/schema/index.js';
+import type { BudgetLevel, Industry, ItineraryActivity, LookingFor, ProfilePrompt } from '../db/schema/index.js';
 import { withTransaction } from '../db/transaction.js';
 import { DEMO_PHONE } from '../modules/auth/auth.service.js';
 import { normalizePhoneNumber } from '../modules/auth/phone/phone-number.js';
@@ -24,7 +24,12 @@ import {
   replaceItinerary,
   upsertReview,
 } from '../modules/trips/trips.repository.js';
-import { updateUser, upsertPhoneUser, upsertTravelProfile } from '../modules/users/users.repository.js';
+import {
+  insertBucketListItem,
+  updateUser,
+  upsertPhoneUser,
+  upsertTravelProfile,
+} from '../modules/users/users.repository.js';
 
 if (env.isProduction) {
   console.error('Refusing to seed a production database.');
@@ -64,15 +69,25 @@ type Person = {
   profession: string;
   bio: string;
   interests: string[];
+  industry: Industry;
+  languages: string[];
+  lookingFor: LookingFor[];
+  budget: BudgetLevel;
+  /** pace, planning, social, rhythm (1–5 each). */
+  vibe: [number, number, number, number];
+  prompts: ProfilePrompt[];
+  bucketList: string[];
 };
 
+const prompt = (key: string, answer: string): ProfilePrompt => ({ prompt: key, answer });
+
 const PEOPLE: Person[] = [
-  { key: 'rahul', phone: '+919000000001', name: 'Rahul Mehta', username: 'rahul', picture: 'https://randomuser.me/api/portraits/men/32.jpg', age: 26, gender: 'Male', city: 'Delhi', profession: 'Product Designer', bio: 'Weekend beach bum and weekday designer. Always planning the next escape.', interests: ['beaches', 'nightlife', 'photography'] },
-  { key: 'sneha', phone: '+919000000002', name: 'Sneha Iyer', username: 'sneha', picture: 'https://randomuser.me/api/portraits/women/44.jpg', age: 24, gender: 'Female', city: 'Mumbai', profession: 'Marketing Lead', bio: 'Sunsets, street food and good company.', interests: ['beaches', 'food', 'nightlife'] },
-  { key: 'aman', phone: '+919000000003', name: 'Aman Verma', username: 'aman', picture: 'https://randomuser.me/api/portraits/men/46.jpg', age: 28, gender: 'Male', city: 'Bangalore', profession: 'Software Engineer', bio: 'Mountains over everything. Ask me about Himalayan treks.', interests: ['trekking', 'camping', 'photography'] },
-  { key: 'priya', phone: '+919000000004', name: 'Priya Nair', username: 'priya', picture: 'https://randomuser.me/api/portraits/women/68.jpg', age: 25, gender: 'Female', city: 'Pune', profession: 'Architect', bio: 'Slow travel, old towns and long lunches.', interests: ['culture', 'food', 'beaches'] },
-  { key: 'vikram', phone: '+919000000005', name: 'Vikram Rao', username: 'vikram', picture: 'https://randomuser.me/api/portraits/men/75.jpg', age: 27, gender: 'Male', city: 'Hyderabad', profession: 'Photographer', bio: 'I shoot landscapes and ride bikes to reach them.', interests: ['photography', 'roadTrips', 'trekking'] },
-  { key: 'neha', phone: '+919000000006', name: 'Neha Kapoor', username: 'neha', picture: 'https://randomuser.me/api/portraits/women/26.jpg', age: 24, gender: 'Female', city: 'Chennai', profession: 'Yoga Teacher', bio: 'Rivers, retreats and early mornings.', interests: ['trekking', 'culture', 'camping'] },
+  { key: 'rahul', phone: '+919000000001', name: 'Rahul Mehta', username: 'rahul', picture: 'https://randomuser.me/api/portraits/men/32.jpg', age: 26, gender: 'Male', city: 'Delhi', profession: 'Product Designer', bio: 'Weekend beach bum and weekday designer. Always planning the next escape.', interests: ['beaches', 'nightlife', 'photography'], industry: 'design', languages: ['English', 'Hindi', 'Punjabi'], lookingFor: ['travel_buddies', 'weekend_trips'], budget: 'moderate', vibe: [3, 2, 5, 5], prompts: [prompt('ideal_trip', 'A beach shack, a good playlist and zero plans after noon.'), prompt('dont_travel_with_me', 'You want to be in bed before midnight on a Goa trip.')], bucketList: ['Bali', 'Andaman Islands'] },
+  { key: 'sneha', phone: '+919000000002', name: 'Sneha Iyer', username: 'sneha', picture: 'https://randomuser.me/api/portraits/women/44.jpg', age: 24, gender: 'Female', city: 'Mumbai', profession: 'Marketing Lead', bio: 'Sunsets, street food and good company.', interests: ['beaches', 'food', 'nightlife'], industry: 'marketing', languages: ['English', 'Hindi', 'Marathi'], lookingFor: ['travel_buddies', 'weekend_trips'], budget: 'moderate', vibe: [3, 2, 5, 5], prompts: [prompt('never_without', 'A hot sauce bottle. Street food needs backup.'), prompt('best_memory', 'Dancing in the rain at a Goa beach party with strangers who became friends.')], bucketList: ['Bali', 'Thailand'] },
+  { key: 'aman', phone: '+919000000003', name: 'Aman Verma', username: 'aman', picture: 'https://randomuser.me/api/portraits/men/46.jpg', age: 28, gender: 'Male', city: 'Bangalore', profession: 'Software Engineer', bio: 'Mountains over everything. Ask me about Himalayan treks.', interests: ['trekking', 'camping', 'photography'], industry: 'tech', languages: ['English', 'Hindi', 'Kannada'], lookingFor: ['networking', 'weekend_trips', 'workation'], budget: 'moderate', vibe: [4, 4, 2, 1], prompts: [prompt('can_teach_you', 'How to read a trail map, and how to debug on a 2G hotspot.'), prompt('ideal_trip', 'Up at 5 for a summit, back by sunset for Maggi and stars.')], bucketList: ['Ladakh', 'Spiti Valley', 'Kedarkantha'] },
+  { key: 'priya', phone: '+919000000004', name: 'Priya Nair', username: 'priya', picture: 'https://randomuser.me/api/portraits/women/68.jpg', age: 25, gender: 'Female', city: 'Pune', profession: 'Architect', bio: 'Slow travel, old towns and long lunches.', interests: ['culture', 'food', 'beaches'], industry: 'design', languages: ['English', 'Malayalam', 'Hindi'], lookingFor: ['travel_buddies', 'long_trips'], budget: 'moderate', vibe: [1, 3, 2, 2], prompts: [prompt('ideal_trip', 'One old town, a week, and a different cafe every morning.'), prompt('travel_hack', 'Walk the first day without a map. You find the best lanes that way.')], bucketList: ['Kyoto', 'Bali', 'Hampi'] },
+  { key: 'vikram', phone: '+919000000005', name: 'Vikram Rao', username: 'vikram', picture: 'https://randomuser.me/api/portraits/men/75.jpg', age: 27, gender: 'Male', city: 'Hyderabad', profession: 'Photographer', bio: 'I shoot landscapes and ride bikes to reach them.', interests: ['photography', 'roadTrips', 'trekking'], industry: 'creative', languages: ['English', 'Telugu', 'Hindi'], lookingFor: ['travel_buddies', 'long_trips'], budget: 'luxury', vibe: [4, 3, 2, 1], prompts: [prompt('can_teach_you', 'Shooting in manual mode, and fixing a bike chain on the road.'), prompt('next_adventure', 'Chasing the northern lights in Iceland.')], bucketList: ['Ladakh', 'Iceland'] },
+  { key: 'neha', phone: '+919000000006', name: 'Neha Kapoor', username: 'neha', picture: 'https://randomuser.me/api/portraits/women/26.jpg', age: 24, gender: 'Female', city: 'Chennai', profession: 'Yoga Teacher', bio: 'Rivers, retreats and early mornings.', interests: ['trekking', 'culture', 'camping'], industry: 'healthcare', languages: ['English', 'Tamil'], lookingFor: ['travel_buddies', 'workation'], budget: 'budget', vibe: [2, 4, 2, 1], prompts: [prompt('never_without', 'A travel yoga mat and a first-aid kit.'), prompt('dont_travel_with_me', 'You think sunrise is optional.')], bucketList: ['Spiti Valley', 'Meghalaya'] },
 ];
 
 function daysFromNow(days: number) {
@@ -210,10 +225,22 @@ async function upsertPerson(person: Person, client: pg.PoolClient) {
       profession: person.profession,
       interests: person.interests,
       travel_styles: person.interests,
+      industry: person.industry,
+      languages: person.languages,
+      looking_for: person.lookingFor,
+      budget: person.budget,
+      vibe_pace: person.vibe[0],
+      vibe_planning: person.vibe[1],
+      vibe_social: person.vibe[2],
+      vibe_rhythm: person.vibe[3],
+      prompts: person.prompts,
       completed: true,
     },
     client,
   );
+  for (const name of person.bucketList) {
+    await insertBucketListItem({ user_id: user.id, place_id: null, name, country: null }, client);
+  }
   return user.id;
 }
 
@@ -384,6 +411,13 @@ async function main() {
         age: 27, gender: 'Male', city: 'Delhi, India', profession: 'Software Engineer',
         bio: 'Love exploring new places, meeting new people and capturing beautiful moments. Always up for an adventure!',
         interests: ['trekking', 'beaches', 'photography'],
+        industry: 'tech', languages: ['English', 'Hindi'], lookingFor: ['travel_buddies', 'networking'], budget: 'moderate',
+        vibe: [4, 4, 3, 2],
+        prompts: [
+          prompt('ideal_trip', 'Mountains in the morning, a new cafe in the evening, good people all day.'),
+          prompt('can_teach_you', 'Night-sky photography with just a phone.'),
+        ],
+        bucketList: ['Ladakh', 'Spiti Valley', 'Bali'],
       },
       client,
     );
